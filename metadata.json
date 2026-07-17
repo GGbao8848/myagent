@@ -1,0 +1,6 @@
+{
+  "name": "AI 办公自动化助手",
+  "description": "智能 AI 助手，支持多轮流式对话、记忆与画像、技能管理、MCP 集成以及多模型配置，帮您轻松搞定企业办公自动化任务。",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

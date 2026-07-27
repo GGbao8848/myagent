@@ -65,6 +65,15 @@ export interface MCPServer {
   tools: {
     name: string;
     description: string;
+    inputSchema?: {
+      type: string;
+      properties: Record<string, {
+        type: string;
+        description: string;
+        enum?: string[];
+      }>;
+      required?: string[];
+    };
   }[];
   headers?: Record<string, string>;
   url?: string;

@@ -287,9 +287,41 @@ app.post("/api/mcp/test", (req, res) => {
   }
 
   const mockTools = [
-    { name: "query_records", description: "查询指定的企业数据表，返回最多100条符合条件的内容" },
-    { name: "generate_excel_dump", description: "将查询内容导出为标准的 .xlsx 格式保存在临时目录" },
-    { name: "fetch_schema_meta", description: "读取目标库的元数据和字段结构信息" }
+    { 
+      name: "query_records", 
+      description: "查询指定的企业数据表，返回最多100条符合条件的内容",
+      inputSchema: {
+        type: "object",
+        properties: {
+          tableName: { type: "string", description: "待查询的企业核心数据表名称（如：orders, products, users）" },
+          condition: { type: "string", description: "自定义过滤条件 SQL 语句片段（如：status = 'pending'）" }
+        },
+        required: ["tableName"]
+      }
+    },
+    { 
+      name: "generate_excel_dump", 
+      description: "将查询内容导出为标准的 .xlsx 格式保存在临时目录",
+      inputSchema: {
+        type: "object",
+        properties: {
+          queryId: { type: "string", description: "需要关联导出的历史数据查询或会话 ID" },
+          outputPath: { type: "string", description: "生成的 Excel 文件目标导出存储路径" }
+        },
+        required: ["queryId"]
+      }
+    },
+    { 
+      name: "fetch_schema_meta", 
+      description: "读取目标库的元数据和字段结构信息",
+      inputSchema: {
+        type: "object",
+        properties: {
+          databaseName: { type: "string", description: "需要拉取元数据信息的特定数据库名称（如：corporate_prod）" }
+        },
+        required: ["databaseName"]
+      }
+    }
   ];
 
   setTimeout(() => {

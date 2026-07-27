@@ -95,10 +95,54 @@ export const initialMcpServers: MCPServer[] = [
     urlOrCommand: "npx -y @modelcontextprotocol/server-filesystem /workspace/corporate_records",
     status: "connected",
     tools: [
-      { name: "read_file", description: "读取指定路径文件的纯文本或二进制解析内容" },
-      { name: "write_file", description: "创建或安全覆盖指定绝对路径下的文本内容" },
-      { name: "list_directory", description: "扫描指定路径的文件夹目录结构并返回文件清单" },
-      { name: "search_text_grep", description: "基于正则表达式在目录下的所有文本中快速检索内容" }
+      {
+        name: "read_file",
+        description: "读取指定路径文件的纯文本或二进制解析内容",
+        inputSchema: {
+          type: "object",
+          properties: {
+            path: { type: "string", description: "要读取的目标文件路径（例如：/workspace/readme.md）" },
+            encoding: { type: "string", description: "字符编码格式，默认为 'utf-8'" }
+          },
+          required: ["path"]
+        }
+      },
+      {
+        name: "write_file",
+        description: "创建或安全覆盖指定绝对路径下的文本内容",
+        inputSchema: {
+          type: "object",
+          properties: {
+            path: { type: "string", description: "目标文件写入路径（例如：/workspace/config.json）" },
+            content: { type: "string", description: "要保存的纯文本或 JSON 字符串内容" }
+          },
+          required: ["path", "content"]
+        }
+      },
+      {
+        name: "list_directory",
+        description: "扫描指定路径的文件夹目录结构并返回文件清单",
+        inputSchema: {
+          type: "object",
+          properties: {
+            path: { type: "string", description: "待扫描的目标文件夹路径（例如：/workspace/src）" },
+            recursive: { type: "boolean", description: "是否递归扫描子目录结构，默认为 false" }
+          },
+          required: ["path"]
+        }
+      },
+      {
+        name: "search_text_grep",
+        description: "基于正则表达式在目录下的所有文本中快速检索内容",
+        inputSchema: {
+          type: "object",
+          properties: {
+            path: { type: "string", description: "进行全局搜索的根目录路径（例如：/workspace）" },
+            pattern: { type: "string", description: "要匹配的正则表达式或检索关键字（例如：error|warning）" }
+          },
+          required: ["path", "pattern"]
+        }
+      }
     ]
   },
   {
@@ -108,9 +152,40 @@ export const initialMcpServers: MCPServer[] = [
     urlOrCommand: "https://mcp-gateway.corporate-internal.net/sse",
     status: "connected",
     tools: [
-      { name: "query_database_records", description: "传入标准 SQL 语句读取云端生产报表与运营库数据" },
-      { name: "fetch_schema_metadata", description: "拉取指定关系型数据库表或视图的字段结构信息" },
-      { name: "generate_audit_log", description: "对特定用户操作日志记录进行行为合规性审查" }
+      {
+        name: "query_database_records",
+        description: "传入标准 SQL 语句读取云端生产报表与运营库数据",
+        inputSchema: {
+          type: "object",
+          properties: {
+            sql: { type: "string", description: "符合标准 SQL-92 规范的数据查询/操作语句" },
+            limit: { type: "number", description: "最大返回行数限制，默认 100 行" }
+          },
+          required: ["sql"]
+        }
+      },
+      {
+        name: "fetch_schema_metadata",
+        description: "拉取指定关系型数据库表或视图的字段结构信息",
+        inputSchema: {
+          type: "object",
+          properties: {
+            tableName: { type: "string", description: "目标数据表名。不传入则获取库内全部表列表" }
+          }
+        }
+      },
+      {
+        name: "generate_audit_log",
+        description: "对特定用户操作日志记录进行行为合规性审查",
+        inputSchema: {
+          type: "object",
+          properties: {
+            userId: { type: "string", description: "执行操作行为审查的特定员工 ID（例如：emp_10023）" },
+            days: { type: "number", description: "审计回溯统计的时间范畴（天数），默认 7 天" }
+          },
+          required: ["userId"]
+        }
+      }
     ]
   },
   {
@@ -120,8 +195,29 @@ export const initialMcpServers: MCPServer[] = [
     urlOrCommand: "https://mcp.office-mail.corporate.net/sse",
     status: "disconnected",
     tools: [
-      { name: "search_unread_emails", description: "检索企业邮箱中今日未读的核心往来邮件" },
-      { name: "insert_draft_auto_reply", description: "智能将建议草稿回复注入到特定会话邮件草稿箱" }
+      {
+        name: "search_unread_emails",
+        description: "检索企业邮箱中今日未读的核心往来邮件",
+        inputSchema: {
+          type: "object",
+          properties: {
+            maxResults: { type: "number", description: "返回结果列表的最大数量限制，默认 10 封" },
+            category: { type: "string", description: "邮件分类偏好（如：finance, hr, business）" }
+          }
+        }
+      },
+      {
+        name: "insert_draft_auto_reply",
+        description: "智能将建议草稿回复注入到特定会话邮件草稿箱",
+        inputSchema: {
+          type: "object",
+          properties: {
+            emailId: { type: "string", description: "目标源邮件的标识符 ID" },
+            draftContent: { type: "string", description: "智能拟定并推荐存入草稿箱的自动回复正文" }
+          },
+          required: ["emailId", "draftContent"]
+        }
+      }
     ]
   }
 ];

@@ -5,7 +5,8 @@ import {
   Sparkles, Key, AlertTriangle, RefreshCw, User, 
   ChevronDown, ChevronUp, Terminal, Search, Flame, 
   Calendar, Info, HelpCircle, ChevronLeft, ChevronRight, Menu,
-  Clock, Edit3, AlertCircle, PlayCircle, Eye, Image, FileText, Paperclip, Loader2
+  Clock, Edit3, AlertCircle, PlayCircle, Eye, Image, FileText, Paperclip, Loader2,
+  TrendingUp, Link, Mail, Wrench, Pin
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import Markdown from "react-markdown";
@@ -23,6 +24,19 @@ import {
 export default function App() {
   // --- Page Navigation State ---
   const [activeTab, setActiveTab] = useState<"dialogue" | "skills" | "memory" | "scheduler" | "mcp" | "settings">("dialogue");
+  const [showTips, setShowTips] = useState<boolean>(() => {
+    const saved = localStorage.getItem("office_ai_show_tips");
+    return saved === "true"; // Defaults to false
+  });
+
+  const toggleShowTips = () => {
+    setShowTips(prev => {
+      const next = !prev;
+      localStorage.setItem("office_ai_show_tips", String(next));
+      return next;
+    });
+  };
+
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState<boolean>(() => {
     const saved = localStorage.getItem("office_ai_sidebar_collapsed");
     return saved === "true";
@@ -1395,7 +1409,7 @@ export default function App() {
         return {
           ...m,
           status: nextStatus,
-          tools: nextStatus === "connected" ? m.tools : []
+          tools: m.tools
         };
       }
       return m;
@@ -1643,7 +1657,7 @@ export default function App() {
       {/* ========================================================
           MAIN VIEW CONTAINER
           ======================================================== */}
-      <main className="flex-1 flex flex-col overflow-hidden bg-[#fbfcfd] relative">
+      <main className="flex-1 flex flex-col overflow-hidden bg-[#fbfcfd] relative z-20">
         
         {/* Floating Sidebar Expand Toggle Button when collapsed */}
         {isSidebarCollapsed && (
@@ -1722,7 +1736,7 @@ export default function App() {
                             className="p-3.5 rounded-xl border border-slate-200 hover:border-slate-400 bg-white hover:bg-slate-50/50 text-left transition-all shadow-xs"
                           >
                             <div className="text-indigo-600 font-semibold text-xs flex items-center gap-1.5 mb-1">
-                              <span>📊</span> 周报计划极速生成
+                              <TrendingUp className="w-3.5 h-3.5 text-indigo-500" /> 周报计划极速生成
                             </div>
                             <p className="text-[11px] text-slate-500 leading-normal">
                               聚合我的工作记录，根据画像偏好一键整理标准周报和下周计划。
@@ -1736,7 +1750,7 @@ export default function App() {
                             className="p-3.5 rounded-xl border border-slate-200 hover:border-slate-400 bg-white hover:bg-slate-50/50 text-left transition-all shadow-xs"
                           >
                             <div className="text-emerald-600 font-semibold text-xs flex items-center gap-1.5 mb-1">
-                              <span>🔗</span> 连通 MCP 工具检索
+                              <Link className="w-3.5 h-3.5 text-emerald-500" /> 连通 MCP 工具检索
                             </div>
                             <p className="text-[11px] text-slate-500 leading-normal">
                               穿透本地中继通道，调用已注册的外部系统数据库或 API 获得实时日志。
@@ -1750,7 +1764,7 @@ export default function App() {
                             className="p-3.5 rounded-xl border border-slate-200 hover:border-slate-400 bg-white hover:bg-slate-50/50 text-left transition-all shadow-xs"
                           >
                             <div className="text-amber-600 font-semibold text-xs flex items-center gap-1.5 mb-1">
-                              <span>✉️</span> 智能商务邮件拟写
+                              <Mail className="w-3.5 h-3.5 text-amber-500" /> 智能商务邮件拟写
                             </div>
                             <p className="text-[11px] text-slate-500 leading-normal">
                               使用极简文字一键扩展出礼貌、谦逊的职场商务邮件回复，一键拟好。
@@ -1764,7 +1778,7 @@ export default function App() {
                             className="p-3.5 rounded-xl border border-slate-200 hover:border-slate-400 bg-white hover:bg-slate-50/50 text-left transition-all shadow-xs"
                           >
                             <div className="text-slate-700 font-semibold text-xs flex items-center gap-1.5 mb-1">
-                              <span>🧠</span> 自定义画像与事实调整
+                              <Brain className="w-3.5 h-3.5 text-slate-500" /> 自定义画像与事实调整
                             </div>
                             <p className="text-[11px] text-slate-500 leading-normal">
                               核实 AI 是否记住了我的专业背景，以及如何在此基础上定制写作规则。
@@ -2129,7 +2143,10 @@ export default function App() {
                         {showSkillsDropdown && (
                           <div className="absolute bottom-full mb-2 left-0 right-0 bg-white border border-slate-200/95 rounded-xl shadow-lg overflow-hidden max-h-60 overflow-y-auto z-40 flex flex-col divide-y divide-slate-100">
                             <div className="px-3.5 py-1.5 bg-slate-50/80 text-[10px] font-semibold text-slate-400 flex items-center justify-between shrink-0">
-                              <span className="flex items-center gap-1">💡 显式引用自动化技能 (键盘上下键选择，回车确认)</span>
+                              <span className="flex items-center gap-1">
+                                <Sparkles className="w-3.5 h-3.5 text-amber-500 shrink-0" />
+                                <span>显式引用自动化技能 (键盘上下键选择，回车确认)</span>
+                              </span>
                               <span>{filteredSkillsForDropdown.length} 项可用</span>
                             </div>
                             {filteredSkillsForDropdown.length > 0 ? (
@@ -2347,21 +2364,40 @@ export default function App() {
                 <div className="max-w-5xl mx-auto space-y-6">
                   
                   {/* Page Header banner */}
-                  <div className="flex justify-between items-start border-b border-slate-100 pb-5">
+                  <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 border-b border-slate-100 pb-5">
                     <div>
-                      <h2 className="text-xl font-display font-semibold text-slate-900">🛠️ 办公技能包管理中心</h2>
-                      <p className="text-xs text-slate-500 mt-1">
-                        启用、禁用或调试大模型的自动化工具库。支持直接上传打包好的 `.zip` 或 `.json` 自定义技能模板。
-                      </p>
+                      <h2 className="text-xl font-display font-semibold text-slate-900 flex items-center gap-2">
+                        <Wrench className="w-5 h-5 text-indigo-500 shrink-0" />
+                        <span>办公技能包管理中心</span>
+                      </h2>
+                      {showTips && (
+                        <p className="text-xs text-slate-500 mt-1 animate-fade-in">
+                          启用、禁用或调试大模型的自动化工具库。支持直接上传打包好的 `.zip` 或 `.json` 自定义技能模板。
+                        </p>
+                      )}
                     </div>
 
-                    <button 
-                      onClick={() => setShowUploadSkillModal(true)}
-                      className="flex items-center gap-2 px-3 py-2 bg-slate-900 hover:bg-slate-800 text-white text-xs font-medium rounded-lg shadow-sm transition-colors"
-                    >
-                      <Upload className="w-3.5 h-3.5" />
-                      <span>上传自定义技能包</span>
-                    </button>
+                    <div className="flex items-center gap-2.5 shrink-0 self-end sm:self-auto">
+                      <button
+                        onClick={toggleShowTips}
+                        className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-xs font-medium transition-all cursor-pointer ${
+                          showTips 
+                            ? "bg-indigo-50 border-indigo-200 text-indigo-700 hover:bg-indigo-100" 
+                            : "bg-white border-slate-200 text-slate-600 hover:bg-slate-50"
+                        }`}
+                      >
+                        <Info className="w-3.5 h-3.5" />
+                        <span>{showTips ? "隐藏说明" : "显示说明"}</span>
+                      </button>
+
+                      <button 
+                        onClick={() => setShowUploadSkillModal(true)}
+                        className="flex items-center gap-2 px-3 py-2 bg-slate-900 hover:bg-slate-800 text-white text-xs font-medium rounded-lg shadow-sm transition-colors cursor-pointer"
+                      >
+                        <Upload className="w-3.5 h-3.5" />
+                        <span>上传自定义技能包</span>
+                      </button>
+                    </div>
                   </div>
 
                   {/* Skills Grid */}
@@ -2417,15 +2453,17 @@ export default function App() {
                   </div>
 
                   {/* Skills hint */}
-                  <div className="p-4 bg-slate-50/60 rounded-xl border border-slate-100 text-xs text-slate-500 flex gap-3.5">
-                    <HelpCircle className="w-5 h-5 text-slate-400 shrink-0 mt-0.5" />
-                    <div>
-                      <h4 className="font-semibold text-slate-700 mb-0.5">如何使技能在会话中生效？</h4>
-                      <p className="leading-relaxed">
-                        当您在 **智能对话** 中下达指令时，AI 会自动读取当前状态为“已开启”的技能描述。如果您的指令属于该技能处理的范畴（例如周报整理或文档阅读），AI 将在后台调用底层规则引擎，自动为您注入定制的参数。
-                      </p>
+                  {showTips && (
+                    <div className="p-4 bg-slate-50/60 rounded-xl border border-slate-100 text-xs text-slate-500 flex gap-3.5 animate-fade-in">
+                      <HelpCircle className="w-5 h-5 text-slate-400 shrink-0 mt-0.5" />
+                      <div>
+                        <h4 className="font-semibold text-slate-700 mb-0.5">如何使技能在会话中生效？</h4>
+                        <p className="leading-relaxed">
+                          当您在 **智能对话** 中下达指令时，AI 会自动读取当前状态为“已开启”的技能描述。如果您的指令属于该技能处理的范畴（例如周报整理或文档阅读），AI 将在后台调用底层规则引擎，自动为您注入定制的参数。
+                        </p>
+                      </div>
                     </div>
-                  </div>
+                  )}
 
                 </div>
               </motion.div>
@@ -2449,13 +2487,29 @@ export default function App() {
                   <div className="border-b border-slate-100 pb-5">
                     <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4">
                       <div>
-                        <h2 className="text-xl font-display font-semibold text-slate-900">🧠 记忆与认知画像</h2>
-                        <p className="text-xs text-slate-500 mt-1">
-                          查看并管理大模型对您的偏好认知事实（Persona & Memories）。这些设定会被永久编码到 AI 的系统指令里，从而让其提供越用越懂您的极致服务。
-                        </p>
+                        <h2 className="text-xl font-display font-semibold text-slate-900 flex items-center gap-2">
+                          <Brain className="w-5 h-5 text-indigo-500 shrink-0" />
+                          <span>记忆与认知画像</span>
+                        </h2>
+                        {showTips && (
+                          <p className="text-xs text-slate-500 mt-1 animate-fade-in">
+                            查看并管理大模型对您的偏好认知事实（Persona & Memories）。这些设定会被永久编码到 AI 的系统指令里，从而让其提供越用越懂您的极致服务。
+                          </p>
+                        )}
                       </div>
                       
-                      <div className="flex flex-wrap items-center gap-4 shrink-0">
+                      <div className="flex flex-wrap items-center gap-3 shrink-0">
+                        <button
+                          onClick={toggleShowTips}
+                          className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-xs font-medium transition-all cursor-pointer ${
+                            showTips 
+                              ? "bg-indigo-50 border-indigo-200 text-indigo-700 hover:bg-indigo-100" 
+                              : "bg-white border-slate-200 text-slate-600 hover:bg-slate-50"
+                          }`}
+                        >
+                          <Info className="w-3.5 h-3.5" />
+                          <span>{showTips ? "隐藏说明" : "显示说明"}</span>
+                        </button>
                         {/* Memory Load Switch */}
                         <div className="flex items-center gap-2.5 bg-white border border-slate-200 px-3.5 py-2 rounded-xl shadow-2xs">
                           <div className="text-right">
@@ -2694,33 +2748,50 @@ export default function App() {
                   <div className="border-b border-slate-100 pb-3.5 shrink-0 flex justify-between items-center">
                     <div>
                       <h2 className="text-lg font-display font-semibold text-slate-900 flex items-center gap-2">
-                        <span>📅 智能日程与计划任务</span>
+                        <Calendar className="w-5 h-5 text-indigo-500 shrink-0" />
+                        <span>智能日程与计划任务</span>
                         <span className="text-[10px] bg-indigo-50 text-indigo-700 px-2 py-0.5 rounded font-mono border border-indigo-100/50">Enterprise Scheduler v2.1</span>
                       </h2>
-                      <p className="text-xs text-slate-500 mt-0.5">
-                        通过与专属 Agent 规划助理对话或手动配置，让 AI 定期自动运行复杂提示词指令，拉取多端 MCP 服务器工具并生成高品质报告。
-                      </p>
+                      {showTips && (
+                        <p className="text-xs text-slate-500 mt-0.5 animate-fade-in">
+                          通过与专属 Agent 规划助理对话或手动配置，让 AI 定期自动运行复杂提示词指令，拉取多端 MCP 服务器工具并生成高品质报告。
+                        </p>
+                      )}
                     </div>
 
-                    <button
-                      onClick={() => {
-                        setEditingTask({
-                          id: "task_manual_" + Date.now(),
-                          title: "未命名自定义定时任务",
-                          scheduleType: "daily",
-                          timeValue: "09:00",
-                          prompt: "拉取最新的已关联数据，并总结今日核心改进建议。",
-                          displayFormat: "markdown",
-                          enabled: true,
-                          createdAt: new Date().toISOString().replace('T', ' ').substring(0, 16),
-                          runCount: 0
-                        });
-                        setIsEditingTaskOpen(true);
-                      }}
-                      className="px-3.5 py-1.5 text-xs font-semibold bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg transition-all shadow-2xs flex items-center gap-1.5 animate-fade-in"
-                    >
-                      <Plus className="w-3.5 h-3.5" /> 手动创建任务
-                    </button>
+                    <div className="flex items-center gap-2.5 shrink-0">
+                      <button
+                        onClick={toggleShowTips}
+                        className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-xs font-medium transition-all cursor-pointer ${
+                          showTips 
+                            ? "bg-indigo-50 border-indigo-200 text-indigo-700 hover:bg-indigo-100" 
+                            : "bg-white border-slate-200 text-slate-600 hover:bg-slate-50"
+                        }`}
+                      >
+                        <Info className="w-3.5 h-3.5" />
+                        <span>{showTips ? "隐藏说明" : "显示说明"}</span>
+                      </button>
+
+                      <button
+                        onClick={() => {
+                          setEditingTask({
+                            id: "task_manual_" + Date.now(),
+                            title: "未命名自定义定时任务",
+                            scheduleType: "daily",
+                            timeValue: "09:00",
+                            prompt: "拉取最新的已关联数据，并总结今日核心改进建议。",
+                            displayFormat: "markdown",
+                            enabled: true,
+                            createdAt: new Date().toISOString().replace('T', ' ').substring(0, 16),
+                            runCount: 0
+                          });
+                          setIsEditingTaskOpen(true);
+                        }}
+                        className="px-3.5 py-1.5 text-xs font-semibold bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg transition-all shadow-2xs flex items-center gap-1.5 cursor-pointer"
+                      >
+                        <Plus className="w-3.5 h-3.5" /> <span>手动创建任务</span>
+                      </button>
+                    </div>
                   </div>
 
                   {/* Single Full-width Panel: Scheduled Tasks List */}
@@ -2833,8 +2904,9 @@ export default function App() {
                                         className="w-3.5 h-3.5 accent-indigo-600 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
                                       />
                                     </div>
-                                    <h3 className="font-semibold text-slate-800 text-xs truncate max-w-[150px] group-hover:text-indigo-600 transition-colors" title={task.title}>
-                                      📌 {task.title}
+                                    <h3 className="font-semibold text-slate-800 text-xs truncate max-w-[150px] group-hover:text-indigo-600 transition-colors flex items-center gap-1" title={task.title}>
+                                      <Pin className="w-3 h-3 text-slate-400 shrink-0" />
+                                      <span>{task.title}</span>
                                     </h3>
                                   </div>
                                   
@@ -2893,7 +2965,8 @@ export default function App() {
                                     )}
                                   </div>
                                   <span className="text-indigo-500 opacity-0 group-hover:opacity-100 transition-opacity font-semibold flex items-center gap-0.5">
-                                    查看 ➔
+                                    <span>查看</span>
+                                    <ChevronRight className="w-3 h-3" />
                                   </span>
                                 </div>
                               </div>
@@ -2925,105 +2998,44 @@ export default function App() {
                   {/* Page header banner */}
                   <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 border-b border-slate-100 pb-5">
                     <div className="min-w-0 flex-1">
-                      <h2 className="text-xl font-display font-semibold text-slate-900">🔗 MCP 协议服务器连通面板</h2>
-                      <p className="text-xs text-slate-500 mt-1 leading-relaxed">
-                        通过 Model Context Protocol (MCP) 让 AI 穿透沙箱，安全调用本地或第三方应用数据与系统接口，实现强大的真自动化办公。
-                      </p>
+                      <h2 className="text-xl font-display font-semibold text-slate-900 flex items-center gap-2">
+                        <Link className="w-5 h-5 text-indigo-500 shrink-0" />
+                        <span>MCP 协议服务器连通面板</span>
+                      </h2>
+                      {showTips && (
+                        <p className="text-xs text-slate-500 mt-1 leading-relaxed animate-fade-in">
+                          通过 Model Context Protocol (MCP) 让 AI 穿透沙箱，安全调用本地或第三方应用数据与系统接口，实现强大的真自动化办公。
+                        </p>
+                      )}
                     </div>
 
-                    <button 
-                      onClick={() => setShowAddServerModal(true)}
-                      className="flex items-center gap-2 px-3.5 py-2 bg-slate-900 hover:bg-slate-800 text-white text-xs font-medium rounded-lg shadow-sm transition-colors shrink-0 whitespace-nowrap"
-                    >
-                      <Plus className="w-3.5 h-3.5" />
-                      <span>添加 MCP 服务器</span>
-                    </button>
+                    <div className="flex items-center gap-2.5 shrink-0">
+                      <button
+                        onClick={toggleShowTips}
+                        className={`flex items-center gap-1.5 px-2.5 py-2 rounded-lg border text-xs font-medium transition-all cursor-pointer ${
+                          showTips 
+                            ? "bg-indigo-50 border-indigo-200 text-indigo-700 hover:bg-indigo-100" 
+                            : "bg-white border-slate-200 text-slate-600 hover:bg-slate-50"
+                        }`}
+                      >
+                        <Info className="w-3.5 h-3.5" />
+                        <span>{showTips ? "隐藏说明" : "显示说明"}</span>
+                      </button>
+
+                      <button 
+                        onClick={() => setShowAddServerModal(true)}
+                        className="flex items-center gap-2 px-3.5 py-2 bg-slate-900 hover:bg-slate-800 text-white text-xs font-medium rounded-lg shadow-sm transition-colors shrink-0 whitespace-nowrap cursor-pointer"
+                      >
+                        <Plus className="w-3.5 h-3.5" />
+                        <span>添加 MCP 服务器</span>
+                      </button>
+                    </div>
                   </div>
 
-                  {/* Add server modal overlay form */}
-                  {showAddServerModal && (
-                    <motion.div 
-                      initial={{ opacity: 0, y: 10 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      className="p-5 border border-slate-200 bg-white rounded-xl shadow-xs space-y-4 max-w-xl"
-                    >
-                      <div className="flex justify-between items-center border-b border-slate-50 pb-2.5">
-                        <div>
-                          <h3 className="font-display font-semibold text-sm text-slate-800">注册并导入 MCP 服务器 (JSON 格式)</h3>
-                          <p className="text-[10px] text-slate-400 mt-0.5">请粘入标准的 MCP json 配置信息，支持多台服务器批量导入</p>
-                        </div>
-                        <button onClick={() => { setShowAddServerModal(false); setMcpJsonError(null); }} className="p-1 hover:bg-slate-100 rounded text-slate-400">
-                          <X className="w-4 h-4" />
-                        </button>
-                      </div>
 
-                      <form onSubmit={handleAddMcpServer} className="space-y-3.5 text-xs">
-                        <div>
-                          <div className="flex justify-between items-center mb-1.5">
-                            <label className="block text-[11px] font-medium text-slate-500">JSON 配置代码</label>
-                            <button 
-                              type="button"
-                              onClick={() => {
-                                setMcpJsonText(JSON.stringify({
-                                  mcpServers: {
-                                    "my-coffee": {
-                                      "type": "streamablehttp",
-                                      "url": "https://gwmcp.lkcoffee.com/order/user/mcp",
-                                      "headers": {
-                                        "Authorization": "Bearer <登录后复制Token替换>"
-                                      }
-                                    }
-                                  }
-                                }, null, 2));
-                                setMcpJsonError(null);
-                              }}
-                              className="text-[10px] text-indigo-600 hover:text-indigo-700 font-medium"
-                            >
-                              💡 插入示例模板
-                            </button>
-                          </div>
-                          
-                          <textarea 
-                            rows={8}
-                            required
-                            placeholder={`粘贴配置，如:\n{\n  "mcpServers": {\n    "my-server": {\n      "type": "streamablehttp",\n      "url": "https://api.example.com/mcp"\n    }\n  }\n}`}
-                            value={mcpJsonText}
-                            onChange={(e) => {
-                              setMcpJsonText(e.target.value);
-                              if (mcpJsonError) setMcpJsonError(null);
-                            }}
-                            className="w-full border border-slate-200 rounded-lg p-3 text-slate-700 font-mono text-[11px] leading-relaxed focus:outline-hidden focus:ring-1 focus:ring-slate-400 bg-slate-50/50"
-                          />
-                        </div>
-
-                        {mcpJsonError && (
-                          <div className="p-2.5 bg-rose-50 border border-rose-100 rounded-lg text-[11px] text-rose-600 flex items-start gap-2 animate-fade-in font-medium">
-                            <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
-                            <span>{mcpJsonError}</span>
-                          </div>
-                        )}
-
-                        <div className="flex justify-end gap-2 pt-2 border-t border-slate-50">
-                          <button 
-                            type="button" 
-                            onClick={() => { setShowAddServerModal(false); setMcpJsonError(null); }}
-                            className="px-3.5 py-1.5 border border-slate-200 rounded-lg font-medium hover:bg-slate-50 text-slate-600"
-                          >
-                            取消
-                          </button>
-                          <button 
-                            type="submit"
-                            className="px-4 py-1.5 bg-slate-900 hover:bg-slate-850 text-white rounded-lg font-medium shadow-xs"
-                          >
-                            导入并添加
-                          </button>
-                        </div>
-                      </form>
-                    </motion.div>
-                  )}
 
                   {/* Server Row List */}
-                  <div className="bg-white border border-slate-200 rounded-xl divide-y divide-slate-100 overflow-hidden shadow-2xs">
+                  <div className="bg-white border border-slate-200 rounded-xl divide-y divide-slate-100 overflow-visible shadow-2xs">
                     {mcpServers.length === 0 ? (
                       <div className="text-center py-12 text-slate-400 text-xs">
                         目前未注册任何 MCP 协议服务，请点击右上方按钮导入。
@@ -3036,76 +3048,206 @@ export default function App() {
                         return (
                           <div 
                             key={server.id}
-                            className="flex flex-col md:flex-row md:items-center justify-between p-4 gap-4 hover:bg-slate-50/50 transition-colors"
+                            className="flex flex-col p-4 gap-3.5 hover:bg-slate-50/50 transition-colors first:rounded-t-xl last:rounded-b-xl"
                           >
-                            {/* Name & Connection Point */}
-                            <div className="flex-1 min-w-0">
-                              <div className="flex items-center gap-2 flex-wrap">
-                                <h3 className="font-display font-semibold text-xs text-slate-900 truncate">{server.name}</h3>
-                                <span className="px-1.5 py-0.2 text-[9px] font-mono rounded bg-slate-100 text-slate-600 border border-slate-150 uppercase shrink-0 whitespace-nowrap">
-                                  {server.type}
-                                </span>
-                              </div>
-                              <p className="text-[10px] font-mono text-slate-400 mt-1 truncate" title={server.urlOrCommand}>
-                                {server.urlOrCommand}
-                              </p>
-                            </div>
-
-                            {/* Controls: Switch, Status, Test Button, Delete Button */}
-                            <div className="flex items-center gap-3 shrink-0 justify-between md:justify-end flex-wrap sm:flex-nowrap">
-                              {/* Switch & Status */}
-                              <div className="flex items-center gap-3 bg-slate-100/60 rounded-lg p-1 px-2 border border-slate-100 shrink-0 whitespace-nowrap">
-                                {/* Status indicator */}
-                                <div className="flex items-center gap-1.5 text-[10px]">
-                                  <span className={`w-2.5 h-2.5 rounded-full shrink-0 ${
-                                    isConnected ? "bg-emerald-500 animate-pulse" :
-                                    isConnecting ? "bg-amber-500 animate-spin" :
-                                    "bg-slate-300"
-                                  }`}></span>
-                                  <span className="font-medium text-slate-600 whitespace-nowrap">
-                                    {isConnected ? "已联通" : isConnecting ? "正在连接" : "离线"}
+                            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                              {/* Name & Connection Point */}
+                              <div className="flex-1 min-w-0">
+                                <div className="flex items-center gap-2 flex-wrap">
+                                  <h3 className="font-display font-semibold text-xs text-slate-900 truncate">{server.name}</h3>
+                                  <span className="px-1.5 py-0.2 text-[9px] font-mono rounded bg-slate-100 text-slate-600 border border-slate-150 uppercase shrink-0 whitespace-nowrap">
+                                    {server.type}
                                   </span>
                                 </div>
-
-                                {/* Separator line */}
-                                <span className="h-3 w-px bg-slate-200 shrink-0"></span>
-
-                                {/* Manual state toggle */}
-                                <button 
-                                  onClick={() => handleToggleMcpStatus(server.id)}
-                                  title={isConnected ? "关闭连接" : "开启连接"}
-                                  className="relative inline-flex h-4 w-7 shrink-0 cursor-pointer rounded-full border border-transparent transition-colors duration-200 ease-in-out focus:outline-hidden bg-slate-200"
-                                  style={{ backgroundColor: isConnected ? "#0f172a" : "#e2e8f0" }}
-                                >
-                                  <span className={`pointer-events-none inline-block h-3 w-3 transform rounded-full bg-white shadow-sm ring-0 transition duration-200 ease-in-out ${
-                                    isConnected ? "translate-x-3" : "translate-x-0"
-                                  }`} />
-                                </button>
+                                <p className="text-[10px] font-mono text-slate-400 mt-1 truncate" title={server.urlOrCommand}>
+                                  {server.urlOrCommand}
+                                </p>
                               </div>
 
-                              {/* Test Connectivity */}
-                              <button 
-                                onClick={() => handleTestMcpServer(server.id, server.name)}
-                                disabled={isConnecting}
-                                className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded border text-[10px] font-medium transition-colors shrink-0 whitespace-nowrap ${
-                                  isConnected 
-                                    ? "bg-white hover:bg-slate-50 text-slate-700 border-slate-200" 
-                                    : "bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border-indigo-150"
-                                }`}
-                              >
-                                <RefreshCw className={`w-3 h-3 shrink-0 ${isConnecting ? 'animate-spin' : ''}`} />
-                                <span>{isConnected ? "测试联通" : "连通测试"}</span>
-                              </button>
+                              {/* Controls: Switch, Status, Show Tools, Test Button, Delete Button */}
+                              <div className="flex items-center gap-3 shrink-0 justify-between md:justify-end flex-wrap sm:flex-nowrap">
+                                {/* Switch & Status */}
+                                <div className="flex items-center gap-3 bg-slate-100/60 rounded-lg p-1 px-2 border border-slate-100 shrink-0 whitespace-nowrap">
+                                  {/* Status indicator */}
+                                  <div className="flex items-center gap-1.5 text-[10px]">
+                                    <span className={`w-2.5 h-2.5 rounded-full shrink-0 ${
+                                      isConnected ? "bg-emerald-500 animate-pulse" :
+                                      isConnecting ? "bg-amber-500 animate-spin" :
+                                      "bg-slate-300"
+                                    }`}></span>
+                                    <span className="font-medium text-slate-600 whitespace-nowrap">
+                                      {isConnected ? "已联通" : isConnecting ? "正在连接" : "离线"}
+                                    </span>
+                                  </div>
 
-                              {/* Delete Button */}
-                              <button 
-                                onClick={() => handleDeleteMcpServer(server.id)}
-                                title="注销此服务器"
-                                className="p-1.5 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors shrink-0"
-                              >
-                                <Trash2 className="w-3.5 h-3.5 shrink-0" />
-                              </button>
+                                  {/* Separator line */}
+                                  <span className="h-3 w-px bg-slate-200 shrink-0"></span>
+
+                                  {/* Manual state toggle */}
+                                  <button 
+                                    onClick={() => handleToggleMcpStatus(server.id)}
+                                    title={isConnected ? "关闭连接" : "开启连接"}
+                                    className="relative inline-flex h-4 w-7 shrink-0 cursor-pointer rounded-full border border-transparent transition-colors duration-200 ease-in-out focus:outline-hidden bg-slate-200"
+                                    style={{ backgroundColor: isConnected ? "#0f172a" : "#e2e8f0" }}
+                                  >
+                                    <span className={`pointer-events-none inline-block h-3 w-3 transform rounded-full bg-white shadow-sm ring-0 transition duration-200 ease-in-out ${
+                                      isConnected ? "translate-x-3" : "translate-x-0"
+                                    }`} />
+                                  </button>
+                                </div>
+
+                                {/* Show Tools Button */}
+                                <button 
+                                  onClick={() => {
+                                    setExpandedMcpServers(prev => ({
+                                      ...prev,
+                                      [server.id]: !prev[server.id]
+                                    }));
+                                  }}
+                                  className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded border text-[10px] font-medium transition-colors shrink-0 whitespace-nowrap ${
+                                    expandedMcpServers[server.id]
+                                      ? "bg-slate-900 text-white border-slate-900 hover:bg-slate-800 shadow-3xs"
+                                      : "bg-white hover:bg-slate-50 text-slate-700 border-slate-200"
+                                  }`}
+                                >
+                                  <Eye className="w-3 h-3 shrink-0" />
+                                  <span>{expandedMcpServers[server.id] ? "隐藏工具" : "展示工具"}</span>
+                                </button>
+
+                                {/* Test Connectivity */}
+                                <button 
+                                  onClick={() => handleTestMcpServer(server.id, server.name)}
+                                  disabled={isConnecting}
+                                  className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded border text-[10px] font-medium transition-colors shrink-0 whitespace-nowrap ${
+                                    isConnected 
+                                      ? "bg-white hover:bg-slate-50 text-slate-700 border-slate-200" 
+                                      : "bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border-indigo-150"
+                                  }`}
+                                >
+                                  <RefreshCw className={`w-3 h-3 shrink-0 ${isConnecting ? 'animate-spin' : ''}`} />
+                                  <span>{isConnected ? "测试联通" : "连通测试"}</span>
+                                </button>
+
+                                {/* Delete Button */}
+                                <button 
+                                  onClick={() => handleDeleteMcpServer(server.id)}
+                                  title="注销此服务器"
+                                  className="p-1.5 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors shrink-0"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5 shrink-0" />
+                                </button>
+                              </div>
                             </div>
+
+                            {/* Collapsible Tools List Section */}
+                            {expandedMcpServers[server.id] && (
+                              <motion.div 
+                                initial={{ opacity: 0, height: 0 }}
+                                animate={{ opacity: 1, height: "auto" }}
+                                className="mt-2.5 pt-3 border-t border-slate-100 overflow-visible"
+                              >
+                                <div className="text-[10px] font-bold text-slate-400 uppercase mb-2 tracking-wider flex items-center gap-1">
+                                  <Wrench className="w-3 h-3 text-slate-400 shrink-0" />
+                                  <span>注册接口工具集 ({server.tools?.length || 0})</span>
+                                </div>
+                                {(!server.tools || server.tools.length === 0) ? (
+                                  <p className="text-[10px] text-slate-400 italic">暂无可用工具列表</p>
+                                ) : (
+                                  <div className="flex flex-wrap gap-1.5 overflow-visible py-1">
+                                    {server.tools.map((tool, index) => {
+                                      const isRightSide = index >= Math.ceil(server.tools.length / 2);
+                                      
+                                      // Robust fallback parsing for various JSON schema property structures
+                                      const schema = tool.inputSchema || (tool as any).input_schema || (tool as any).schema || (tool as any).parameters;
+                                      let properties: Record<string, any> | null = null;
+                                      let requiredFields: string[] = [];
+                                      
+                                      if (schema) {
+                                        if (schema.properties && typeof schema.properties === "object") {
+                                          properties = schema.properties;
+                                        } else if (typeof schema === "object" && !Array.isArray(schema)) {
+                                          const schemaKeywords = ["type", "required", "description", "properties", "definitions", "$schema"];
+                                          const keys = Object.keys(schema);
+                                          const hasOnlyKeywords = keys.length > 0 && keys.every(k => schemaKeywords.includes(k));
+                                          if (!hasOnlyKeywords) {
+                                            properties = schema;
+                                          }
+                                        }
+                                        if (Array.isArray(schema.required)) {
+                                          requiredFields = schema.required;
+                                        }
+                                      }
+                                      if (!properties && typeof (tool as any).properties === "object") {
+                                        properties = (tool as any).properties;
+                                      }
+                                      if (requiredFields.length === 0 && Array.isArray((tool as any).required)) {
+                                        requiredFields = (tool as any).required;
+                                      }
+                                      
+                                      const hasParameters = properties && Object.keys(properties).length > 0;
+
+                                      return (
+                                        <div 
+                                          key={tool.name}
+                                          className="group relative inline-flex cursor-help items-center px-2 py-0.5 rounded bg-slate-50 hover:bg-indigo-50 text-[10px] font-mono text-slate-600 hover:text-indigo-700 border border-slate-200/60 hover:border-indigo-200/80 transition-all shadow-3xs"
+                                        >
+                                          <span>{tool.name}</span>
+                                          
+                                          {/* Hover Tooltip - custom designed to be extremely clean and space-saving */}
+                                          <div className={`absolute bottom-full ${isRightSide ? 'right-0' : 'left-0'} mb-2 hidden group-hover:block w-80 p-3.5 bg-slate-900/95 text-white text-[11px] rounded-xl shadow-xl z-50 pointer-events-none text-left leading-relaxed font-sans backdrop-blur-xs border border-white/10`}>
+                                            <div className="font-semibold text-indigo-400 font-mono text-xs border-b border-white/10 pb-1.5 mb-1.5 flex items-center gap-1.5">
+                                              <Wrench className="w-3 h-3 text-indigo-400" />
+                                              <span>{tool.name}</span>
+                                            </div>
+                                            <div className="text-slate-200 text-[10.5px] font-sans leading-normal">
+                                              {tool.description || "无可用详细描述。"}
+                                            </div>
+
+                                            {/* Parameters and description block */}
+                                            {hasParameters && properties && (
+                                              <div className="border-t border-white/10 pt-2.5 mt-2.5">
+                                                <div className="text-[9px] font-bold text-slate-400 uppercase tracking-wider mb-2 flex items-center gap-1">
+                                                  <span>参数详情 / Parameters Schema</span>
+                                                </div>
+                                                <div className="max-h-40 overflow-y-auto pr-0.5 custom-scrollbar">
+                                                  <div className="grid grid-cols-[minmax(65px,_1fr)_48px_2fr] gap-x-2.5 gap-y-1.5 text-[10px] items-start border-t border-white/5 pt-2">
+                                                    {/* Headers */}
+                                                    <div className="text-[9px] font-medium text-slate-500 uppercase font-sans tracking-wide">参数 / Name</div>
+                                                    <div className="text-[9px] font-medium text-slate-500 uppercase font-sans tracking-wide">类型 / Type</div>
+                                                    <div className="text-[9px] font-medium text-slate-500 uppercase font-sans tracking-wide">说明 / Desc</div>
+                                                    
+                                                    {/* Rows */}
+                                                    {Object.entries(properties).map(([propName, propDetails]: [string, any]) => {
+                                                      const isRequired = requiredFields.includes(propName);
+                                                      return (
+                                                        <React.Fragment key={propName}>
+                                                          <div className="font-mono font-medium text-indigo-300 break-all leading-snug">
+                                                            {propName}
+                                                            {isRequired && <span className="text-rose-400 ml-0.5 font-sans" title="必填">*</span>}
+                                                          </div>
+                                                          <div className="font-mono text-[9px] text-slate-400 break-all leading-snug pt-0.5">
+                                                            {(propDetails && typeof propDetails === "object" ? propDetails.type : typeof propDetails) || "any"}
+                                                          </div>
+                                                          <div className="text-slate-200 font-sans text-[9.5px] leading-snug break-words">
+                                                            {(propDetails && typeof propDetails === "object" ? propDetails.description : String(propDetails)) || <span className="text-slate-500 italic">无</span>}
+                                                          </div>
+                                                        </React.Fragment>
+                                                      );
+                                                    })}
+                                                  </div>
+                                                </div>
+                                              </div>
+                                            )}
+                                            {/* Tiny arrow pointing down */}
+                                            <div className={`absolute top-full ${isRightSide ? 'right-4' : 'left-4'} border-4 border-transparent border-t-slate-900/95`} />
+                                          </div>
+                                        </div>
+                                      );
+                                    })}
+                                  </div>
+                                )}
+                              </motion.div>
+                            )}
                           </div>
                         );
                       })
@@ -3131,11 +3273,30 @@ export default function App() {
                 <div className="max-w-5xl mx-auto space-y-7">
                   
                   {/* Page header banner */}
-                  <div className="border-b border-slate-100 pb-5">
-                    <h2 className="text-xl font-display font-semibold text-slate-900">⚙️ 大模型连接管理与运行看板</h2>
-                    <p className="text-xs text-slate-500 mt-1">
-                      在这里注册并管理可用于智能助理调度的底层 LLM 模型供应商（OpenAI 兼容端点），并监控核心运行调用数据。
-                    </p>
+                  <div className="border-b border-slate-100 pb-5 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+                    <div>
+                      <h2 className="text-xl font-display font-semibold text-slate-900 flex items-center gap-2">
+                        <Settings className="w-5 h-5 text-indigo-500 shrink-0" />
+                        <span>大模型连接管理与运行看板</span>
+                      </h2>
+                      {showTips && (
+                        <p className="text-xs text-slate-500 mt-1 animate-fade-in">
+                          在这里注册并管理可用于智能助理调度的底层 LLM 模型供应商（OpenAI 兼容端点），并监控核心运行调用数据。
+                        </p>
+                      )}
+                    </div>
+
+                    <button
+                      onClick={toggleShowTips}
+                      className={`flex items-center gap-1.5 px-2.5 py-2 rounded-lg border text-xs font-medium transition-all cursor-pointer shrink-0 self-end sm:self-auto ${
+                        showTips 
+                          ? "bg-indigo-50 border-indigo-200 text-indigo-700 hover:bg-indigo-100" 
+                          : "bg-white border-slate-200 text-slate-600 hover:bg-slate-50"
+                      }`}
+                    >
+                      <Info className="w-3.5 h-3.5" />
+                      <span>{showTips ? "隐藏说明" : "显示说明"}</span>
+                    </button>
                   </div>
 
                   {/* ==========================================
@@ -3569,6 +3730,102 @@ export default function App() {
         )}
 
         {/* ========================================================
+            MODAL 1.2: ADD MCP SERVER OVERLAY MODAL
+            ======================================================== */}
+        {showAddServerModal && (
+          <motion.div 
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4 z-50"
+          >
+            <motion.div 
+              initial={{ scale: 0.95, y: 15 }}
+              animate={{ scale: 1, y: 0 }}
+              exit={{ scale: 0.95, y: 15 }}
+              className="bg-white border border-slate-200 rounded-2xl p-6 shadow-xl max-w-lg w-full relative text-xs"
+            >
+              <div className="flex justify-between items-center border-b border-slate-150 pb-3">
+                <div>
+                  <h3 className="font-display font-semibold text-sm text-slate-900">注册并导入 MCP 服务器 (JSON 格式)</h3>
+                  <p className="text-[10px] text-slate-400 mt-0.5">请粘入标准的 MCP json 配置信息，支持多台服务器批量导入</p>
+                </div>
+                <button 
+                  onClick={() => { setShowAddServerModal(false); setMcpJsonError(null); }} 
+                  className="p-1 hover:bg-slate-100 rounded text-slate-400 cursor-pointer"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              <form onSubmit={handleAddMcpServer} className="mt-4 space-y-4 text-xs">
+                <div>
+                  <div className="flex justify-between items-center mb-1.5">
+                    <label className="block text-[11px] font-semibold text-slate-500">JSON 配置代码</label>
+                    <button 
+                      type="button"
+                      onClick={() => {
+                        setMcpJsonText(JSON.stringify({
+                          mcpServers: {
+                            "my-coffee": {
+                              "type": "streamablehttp",
+                              "url": "https://gwmcp.lkcoffee.com/order/user/mcp",
+                              "headers": {
+                                "Authorization": "Bearer <登录后复制Token替换>"
+                              }
+                            }
+                          }
+                        }, null, 2));
+                        setMcpJsonError(null);
+                      }}
+                      className="text-[10px] text-indigo-600 hover:text-indigo-700 font-medium cursor-pointer flex items-center gap-1"
+                    >
+                      <Sparkles className="w-3 h-3 text-indigo-500 shrink-0" />
+                      <span>插入示例模板</span>
+                    </button>
+                  </div>
+                  
+                  <textarea 
+                    rows={8}
+                    required
+                    placeholder={`粘贴配置，如:\n{\n  "mcpServers": {\n    "my-server": {\n      "type": "streamablehttp",\n      "url": "https://api.example.com/mcp"\n    }\n  }\n}`}
+                    value={mcpJsonText}
+                    onChange={(e) => {
+                      setMcpJsonText(e.target.value);
+                      if (mcpJsonError) setMcpJsonError(null);
+                    }}
+                    className="w-full border border-slate-200 rounded-lg p-3 text-slate-700 font-mono text-[11px] leading-relaxed focus:outline-hidden focus:ring-1 focus:ring-slate-400 bg-slate-50/50"
+                  />
+                </div>
+
+                {mcpJsonError && (
+                  <div className="p-2.5 bg-rose-50 border border-rose-100 rounded-lg text-[11px] text-rose-600 flex items-start gap-2 animate-fade-in font-medium">
+                    <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
+                    <span>{mcpJsonError}</span>
+                  </div>
+                )}
+
+                <div className="flex justify-end gap-2 pt-3 border-t border-slate-100">
+                  <button 
+                    type="button" 
+                    onClick={() => { setShowAddServerModal(false); setMcpJsonError(null); }}
+                    className="px-3.5 py-1.5 border border-slate-200 rounded-lg font-medium hover:bg-slate-50 text-slate-600 cursor-pointer"
+                  >
+                    取消
+                  </button>
+                  <button 
+                    type="submit"
+                    className="px-4 py-1.5 bg-slate-900 hover:bg-slate-850 text-white rounded-lg font-semibold shadow-xs cursor-pointer"
+                  >
+                    导入并添加
+                  </button>
+                </div>
+              </form>
+            </motion.div>
+          </motion.div>
+        )}
+
+        {/* ========================================================
             MODAL 1.5: SCHEDULE TASK VIEW DETAILS MODAL
             ======================================================== */}
         {viewingTask && (
@@ -3603,7 +3860,8 @@ export default function App() {
                 <div className="space-y-1">
                   <span className="text-[10px] font-semibold text-slate-400 uppercase">计划任务名称</span>
                   <h4 className="text-sm font-semibold text-slate-900 flex items-center gap-2">
-                    <span>📌 {viewingTask.title}</span>
+                    <Pin className="w-4 h-4 text-slate-400 shrink-0" />
+                    <span>{viewingTask.title}</span>
                     <span className={`text-[9px] font-mono font-bold px-1.5 py-0.5 rounded shrink-0 ${
                       viewingTask.enabled ? 'bg-emerald-50 text-emerald-700 border border-emerald-100' : 'bg-slate-100 text-slate-500'
                     }`}>
@@ -3614,39 +3872,56 @@ export default function App() {
 
                 {/* Info Grid */}
                 <div className="grid grid-cols-2 gap-3 bg-slate-50 p-3.5 rounded-xl border border-slate-100 font-sans">
-                  <div className="space-y-0.5">
-                    <span className="text-slate-400 text-[10px]">🔄 触发频率</span>
-                    <p className="text-slate-800 font-medium">
+                  <div className="space-y-1">
+                    <span className="text-slate-400 text-[10px] flex items-center gap-1">
+                      <RefreshCw className="w-3 h-3 text-slate-400" />
+                      <span>触发频率</span>
+                    </span>
+                    <p className="text-slate-800 font-medium pl-4">
                       {viewingTask.scheduleType === 'daily' ? '每天一次' : viewingTask.scheduleType === 'weekly' ? '每周一次' : viewingTask.scheduleType === 'monthly' ? '每月一次' : '单次测试'}
                     </p>
                   </div>
-                  <div className="space-y-0.5">
-                    <span className="text-slate-400 text-[10px]">⏰ 设定时间</span>
-                    <p className="text-slate-800 font-medium font-mono flex items-center gap-1">
-                      <Clock className="w-3.5 h-3.5 text-indigo-500" />
+                  <div className="space-y-1">
+                    <span className="text-slate-400 text-[10px] flex items-center gap-1">
+                      <Clock className="w-3 h-3 text-slate-400" />
+                      <span>设定时间</span>
+                    </span>
+                    <p className="text-slate-800 font-medium font-mono flex items-center gap-1 pl-4">
                       {viewingTask.timeValue}
                     </p>
                   </div>
-                  <div className="space-y-0.5">
-                    <span className="text-slate-400 text-[10px]">📊 展现格式</span>
-                    <p className="text-slate-800 font-semibold font-mono text-[10px] uppercase">
+                  <div className="space-y-1">
+                    <span className="text-slate-400 text-[10px] flex items-center gap-1">
+                      <FileText className="w-3 h-3 text-slate-400" />
+                      <span>展现格式</span>
+                    </span>
+                    <p className="text-slate-800 font-semibold font-mono text-[10px] uppercase pl-4">
                       {viewingTask.displayFormat}
                     </p>
                   </div>
-                  <div className="space-y-0.5">
-                    <span className="text-slate-400 text-[10px]">📊 已自动执行</span>
-                    <p className="text-slate-800 font-medium">
+                  <div className="space-y-1">
+                    <span className="text-slate-400 text-[10px] flex items-center gap-1">
+                      <PlayCircle className="w-3 h-3 text-slate-400" />
+                      <span>已自动执行</span>
+                    </span>
+                    <p className="text-slate-800 font-medium pl-4">
                       {viewingTask.runCount}次
                     </p>
                   </div>
-                  <div className="space-y-0.5 col-span-2 border-t border-slate-200/50 pt-2 mt-1">
-                    <span className="text-slate-400 text-[10px]">🟢 上次运行时间</span>
-                    <p className="text-slate-700 font-mono text-[11px]">{viewingTask.lastRunTime || '暂无执行记录'}</p>
+                  <div className="space-y-1 col-span-2 border-t border-slate-200/50 pt-2 mt-1">
+                    <span className="text-slate-400 text-[10px] flex items-center gap-1">
+                      <Check className="w-3 h-3 text-slate-400" />
+                      <span>上次运行时间</span>
+                    </span>
+                    <p className="text-slate-700 font-mono text-[11px] pl-4">{viewingTask.lastRunTime || '暂无执行记录'}</p>
                   </div>
                   {viewingTask.enabled && viewingTask.nextRunTime && (
-                    <div className="space-y-0.5 col-span-2">
-                      <span className="text-emerald-600 font-semibold text-[10px]">🔵 下次预计执行时间</span>
-                      <p className="text-emerald-700 font-semibold font-mono text-[11px]">{viewingTask.nextRunTime}</p>
+                    <div className="space-y-1 col-span-2">
+                      <span className="text-emerald-600 font-semibold text-[10px] flex items-center gap-1">
+                        <Clock className="w-3 h-3 text-emerald-500" />
+                        <span>下次预计执行时间</span>
+                      </span>
+                      <p className="text-emerald-700 font-semibold font-mono text-[11px] pl-4">{viewingTask.nextRunTime}</p>
                     </div>
                   )}
                 </div>
@@ -3701,7 +3976,7 @@ export default function App() {
                       className="px-5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-lg text-xs transition-all flex items-center justify-center gap-1.5 shadow-sm hover:shadow-md hover:scale-[1.01]"
                     >
                       <PlayCircle className="w-4 h-4 animate-pulse" />
-                      <span>⚡ 立即测试运行</span>
+                      <span>立即测试运行</span>
                     </button>
                   </div>
                 </div>
@@ -3828,7 +4103,10 @@ export default function App() {
                     placeholder="在此输入详细的 AI 提示词。例如：读取最近一次 MCP 状态，自动整理最近三天的客户反馈，并将其格式化输出..."
                     className="w-full bg-slate-50 border border-slate-200 focus:bg-white focus:border-indigo-500 rounded-lg px-3 py-2 outline-none font-mono leading-relaxed"
                   />
-                  <span className="text-[10px] text-slate-400 block">💡 提示：该任务运行时将自动读取已连接的 MCP 服务器工具以及您的个人记忆画像进行优化。</span>
+                  <span className="text-[10px] text-slate-400 flex items-center gap-1 mt-1">
+                    <Sparkles className="w-3 h-3 text-indigo-500 shrink-0" />
+                    <span>提示：该任务运行时将自动读取已连接的 MCP 服务器工具以及您的个人记忆画像进行优化。</span>
+                  </span>
                 </div>
 
                 {/* Footer Buttons */}

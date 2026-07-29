@@ -7,6 +7,14 @@ export interface ToolInvocation {
   result?: string;
 }
 
+export interface Attachment {
+  name: string;
+  size: string;
+  type: string;
+  url?: string;
+  isImage?: boolean;
+}
+
 export interface Message {
   id: string;
   role: Role;
@@ -14,13 +22,7 @@ export interface Message {
   timestamp: string;
   thinking?: string; // The thinking/reasoning process of the AI
   toolsUsed?: ToolInvocation[]; // Simulated or real tool calls
-  attachments?: {
-    name: string;
-    size: string;
-    type: string;
-    url?: string;
-    isImage?: boolean;
-  }[];
+  attachments?: Attachment[];
 }
 
 export interface Session {

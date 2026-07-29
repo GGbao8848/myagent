@@ -1,12 +1,12 @@
 import React, { useState, useEffect, useRef } from "react";
 import { 
   MessageSquare, Layers, Brain, Database, Settings, 
-  Plus, Trash2, Send, Play, Pause, Check, X, Upload, 
+  Plus, Trash2, Send, Play, Pause, Check, X, Upload, Copy,
   Sparkles, Key, AlertTriangle, RefreshCw, User, 
   ChevronDown, ChevronUp, Terminal, Search, Flame, 
   Calendar, Info, HelpCircle, ChevronLeft, ChevronRight, Menu,
   Clock, Edit3, AlertCircle, PlayCircle, Eye, Image, FileText, Paperclip, Loader2,
-  TrendingUp, Link, Mail, Wrench, Pin
+  TrendingUp, Link, Mail, Wrench, Pin, LogOut, LogIn, ShieldCheck, UserCheck, Smartphone
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import Markdown from "react-markdown";
@@ -20,6 +20,52 @@ import {
   initialMcpServers, initialModelConfigs, initialSessions,
   initialScheduleTasks
 } from "./mockData";
+import { DialogueView } from "./components/DialogueView";
+import { SkillsView } from "./components/SkillsView";
+import { MemoryView } from "./components/MemoryView";
+import { SchedulerView } from "./components/SchedulerView";
+import { McpView } from "./components/McpView";
+import { SettingsView } from "./components/SettingsView";
+import { ApiDocsModal } from "./components/modals/ApiDocsModal";
+
+const PRESET_USERS = [
+  {
+    name: "张三",
+    role: "高级 AI 架构师",
+    department: "研发中心 - 智能化组",
+    tonePreference: "professional",
+    formatPreference: "markdown",
+    email: "zhangsan@enterprise.ai",
+    avatarBg: "bg-indigo-600 text-white"
+  },
+  {
+    name: "李四",
+    role: "资深产品经理",
+    department: "产品创新部",
+    tonePreference: "friendly",
+    formatPreference: "markdown",
+    email: "lisi@enterprise.ai",
+    avatarBg: "bg-emerald-600 text-white"
+  },
+  {
+    name: "王五",
+    role: "商业数据分析师",
+    department: "商业智能部",
+    tonePreference: "concise",
+    formatPreference: "bullet",
+    email: "wangwu@enterprise.ai",
+    avatarBg: "bg-amber-600 text-white"
+  },
+  {
+    name: "赵六",
+    role: "运营总监",
+    department: "市场运营部",
+    tonePreference: "detailed",
+    formatPreference: "markdown",
+    email: "zhaoliu@enterprise.ai",
+    avatarBg: "bg-rose-600 text-white"
+  }
+];
 
 export default function App() {
   // --- Page Navigation State ---
@@ -63,11 +109,115 @@ export default function App() {
     });
   };
 
+  const [showApiDocsModal, setShowApiDocsModal] = useState<boolean>(false);
+
   // --- Local Database States (with localStorage recovery) ---
   const [userProfile, setUserProfile] = useState<UserProfile>(() => {
     const saved = localStorage.getItem("office_ai_profile");
     return saved ? JSON.parse(saved) : initialUserProfile;
   });
+
+  // --- Auth / Login / Logout States ---
+  const [isLoggedIn, setIsLoggedIn] = useState<boolean>(() => {
+    const saved = localStorage.getItem("office_ai_is_logged_in");
+    return saved !== "false";
+  });
+  const [showLoginModal, setShowLoginModal] = useState<boolean>(false);
+  const [showUserDropdown, setShowUserDropdown] = useState<boolean>(false);
+  const [loginTab, setLoginTab] = useState<"quick" | "password" | "phone">("quick");
+  const [loginFormName, setLoginFormName] = useState("");
+  const [loginFormRole, setLoginFormRole] = useState("");
+  const [loginFormDept, setLoginFormDept] = useState("");
+  const [loginFormPhone, setLoginFormPhone] = useState("");
+  const [loginFormPassword, setLoginFormPassword] = useState("");
+  const [loginFormCode, setLoginFormCode] = useState("");
+  const [loginError, setLoginError] = useState<string | null>(null);
+  const [authNotice, setAuthNotice] = useState<string | null>(null);
+  const [smsCountdown, setSmsCountdown] = useState<number>(0);
+
+  useEffect(() => {
+    if (smsCountdown > 0) {
+      const timer = setTimeout(() => setSmsCountdown(smsCountdown - 1), 1000);
+      return () => clearTimeout(timer);
+    }
+  }, [smsCountdown]);
+
+  const handleSendSmsCode = () => {
+    if (!loginFormPhone || loginFormPhone.length < 11) {
+      setLoginError("请输入有效的 11 位手机号码");
+      return;
+    }
+    setLoginError(null);
+    setSmsCountdown(60);
+    setLoginFormCode("888888");
+    setAuthNotice("验证码已发送（测试体验验证码：888888）");
+    setTimeout(() => setAuthNotice(null), 4000);
+  };
+
+  const handleLoginPreset = (preset: typeof PRESET_USERS[0]) => {
+    const newProfile: UserProfile = {
+      name: preset.name,
+      role: preset.role,
+      department: preset.department,
+      tonePreference: preset.tonePreference as any,
+      formatPreference: preset.formatPreference as any
+    };
+    setUserProfile(newProfile);
+    setIsLoggedIn(true);
+    localStorage.setItem("office_ai_is_logged_in", "true");
+    localStorage.setItem("office_ai_profile", JSON.stringify(newProfile));
+    setShowLoginModal(false);
+    setAuthNotice(`欢迎回来，${preset.name}（${preset.role}）！账号已成功切换。`);
+    setTimeout(() => setAuthNotice(null), 4000);
+  };
+
+  const handleLoginSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    setLoginError(null);
+
+    if (loginTab === "password") {
+      if (!loginFormName.trim()) {
+        setLoginError("请输入用户名或账号");
+        return;
+      }
+    } else if (loginTab === "phone") {
+      if (!loginFormPhone.trim() || loginFormPhone.length < 11) {
+        setLoginError("请输入有效的 11 位手机号码");
+        return;
+      }
+      if (!loginFormCode.trim()) {
+        setLoginError("请输入验证码");
+        return;
+      }
+    }
+
+    const name = loginFormName.trim() || (loginTab === "phone" ? `手机用户_${loginFormPhone.slice(-4)}` : "企业用户");
+    const role = loginFormRole.trim() || "团队成员";
+    const dept = loginFormDept.trim() || "综合业务部";
+
+    const newProfile: UserProfile = {
+      ...userProfile,
+      name,
+      role,
+      department: dept
+    };
+
+    setUserProfile(newProfile);
+    setIsLoggedIn(true);
+    localStorage.setItem("office_ai_is_logged_in", "true");
+    localStorage.setItem("office_ai_profile", JSON.stringify(newProfile));
+    setShowLoginModal(false);
+    setAuthNotice(`登录成功！当前账号：${name} (${role})`);
+    setTimeout(() => setAuthNotice(null), 4000);
+  };
+
+  const handleLogout = () => {
+    setIsLoggedIn(false);
+    localStorage.setItem("office_ai_is_logged_in", "false");
+    setShowUserDropdown(false);
+    setAuthNotice("您已安全退出当前账号。");
+    setTimeout(() => setAuthNotice(null), 4000);
+  };
 
   const [skills, setSkills] = useState<Skill[]>(() => {
     const saved = localStorage.getItem("office_ai_skills");
@@ -118,6 +268,7 @@ export default function App() {
   const [activeStreamingMessageId, setActiveStreamingMessageId] = useState<string | null>(null);
   const [expandedThinking, setExpandedThinking] = useState<{ [msgId: string]: boolean }>({});
   const [copiedMsgId, setCopiedMsgId] = useState<string | null>(null);
+  const [copiedParamKey, setCopiedParamKey] = useState<string | null>(null);
   const [expandedMcpServers, setExpandedMcpServers] = useState<{ [serverId: string]: boolean }>({});
 
   // Global Toast Notification State
@@ -128,6 +279,17 @@ export default function App() {
     setTimeout(() => {
       setToast(prev => prev && prev.message === message ? null : prev);
     }, 3000);
+  };
+
+  const handleCopyParamName = (paramName: string, toolName?: string, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    navigator.clipboard.writeText(paramName);
+    const key = toolName ? `${toolName}:${paramName}` : paramName;
+    setCopiedParamKey(key);
+    showToast(`已成功复制参数名 "${paramName}" 到剪贴板`, "success");
+    setTimeout(() => {
+      setCopiedParamKey(prev => prev === key ? null : prev);
+    }, 2000);
   };
 
   // Skills Dropdown States for "/" command
@@ -284,9 +446,9 @@ export default function App() {
   const [showAddModelModal, setShowAddModelModal] = useState<boolean>(false);
   const [newModel, setNewModel] = useState({ name: "", provider: "OpenAI" as any, apiKey: "", baseUrl: "" });
   const [testingModelId, setTestingModelId] = useState<string | null>(null);
-  const [modelConnectionStatuses, setModelConnectionStatuses] = useState<{ 
-    [modelId: string]: { status: "connected" | "disconnected" | "simulated"; latency?: string; message?: string } 
-  }>({});
+  const [modelConnectionStatuses, setModelConnectionStatuses] = useState<
+    Record<string, { status: "connected" | "failed" | "simulated"; message: string; latency?: string }>
+  >({});
 
   // --- Scheduler Tab States ---
   const [schedulerMessages, setSchedulerMessages] = useState<Message[]>(() => {
@@ -1375,7 +1537,7 @@ export default function App() {
         setModelConnectionStatuses(prev => ({
           ...prev,
           [config.id]: {
-            status: "disconnected",
+            status: "failed",
             message: data.message || "握手连接失败，无法触达端点。"
           }
         }));
@@ -1386,7 +1548,7 @@ export default function App() {
       setModelConnectionStatuses(prev => ({
         ...prev,
         [config.id]: {
-          status: "disconnected",
+          status: "failed",
           message: "网络异常：无法请求测试接口。"
         }
       }));
@@ -1526,6 +1688,7 @@ export default function App() {
               <AnimatePresence initial={false}>
                 {isNavExpanded && (
                   <motion.nav 
+                    key="sidebar-nav-expanded"
                     initial={{ height: 0, opacity: 0 }}
                     animate={{ height: "auto", opacity: 1 }}
                     exit={{ height: 0, opacity: 0 }}
@@ -1609,31 +1772,135 @@ export default function App() {
                       <Settings className="w-3.5 h-3.5 text-slate-500" />
                       <span>系统设置</span>
                     </button>
+
+                    <button 
+                      onClick={() => setShowApiDocsModal(true)}
+                      className="flex items-center justify-between px-3 py-2 rounded-lg text-xs font-medium text-slate-600 hover:bg-slate-100/50 hover:text-slate-900 transition-all cursor-pointer"
+                    >
+                      <div className="flex items-center gap-2">
+                        <Terminal className="w-3.5 h-3.5 text-indigo-500" />
+                        <span className="text-indigo-600 font-medium">FastAPI 对接文档</span>
+                      </div>
+                      <span className="text-[9px] bg-indigo-50 text-indigo-600 px-1.5 py-0.2 rounded font-mono border border-indigo-100">Docs</span>
+                    </button>
                   </motion.nav>
                 )}
               </AnimatePresence>
 
-              {/* User Profile Card acts as the toggle header */}
-              <div 
-                onClick={toggleNavExpanded}
-                className="p-3 bg-slate-50/30 cursor-pointer hover:bg-slate-100/40 select-none transition-colors"
-                title={isNavExpanded ? "点击收起功能导航" : "点击展开功能导航"}
-              >
-                <div className="flex items-center gap-2.5 bg-white border border-slate-150 rounded-lg p-2.5 shadow-3xs hover:border-slate-300 transition-colors">
-                  <div className="w-7 h-7 rounded-full bg-slate-200 border border-slate-300 flex items-center justify-center text-slate-600 shrink-0">
-                    <User className="w-4 h-4" />
+              {/* User Profile Card & Auth Control */}
+              <div className="p-3 bg-slate-50/40 border-t border-slate-150 relative select-none">
+                {/* User Dropdown Menu Popover */}
+                <AnimatePresence>
+                  {showUserDropdown && (
+                    <motion.div
+                      key="user-dropdown-popover"
+                      initial={{ opacity: 0, y: 10, scale: 0.95 }}
+                      animate={{ opacity: 1, y: 0, scale: 1 }}
+                      exit={{ opacity: 0, y: 10, scale: 0.95 }}
+                      className="absolute bottom-full left-3 right-3 mb-2 bg-white border border-slate-200 rounded-xl shadow-lg p-2 z-50 text-xs"
+                    >
+                      <div className="p-2.5 bg-slate-50 rounded-lg mb-1.5 border border-slate-100">
+                        <div className="flex items-center justify-between font-medium text-slate-800">
+                          <span className="font-bold text-slate-900">{isLoggedIn ? userProfile.name : "游客 / 未登录"}</span>
+                          <span className={`text-[9px] px-1.5 py-0.5 rounded-full font-mono font-semibold ${
+                            isLoggedIn ? "bg-emerald-50 text-emerald-700 border border-emerald-200" : "bg-amber-50 text-amber-700 border border-amber-200"
+                          }`}>
+                            {isLoggedIn ? "● 在线" : "○ 未登录"}
+                          </span>
+                        </div>
+                        <div className="text-[10px] text-slate-500 font-mono mt-0.5 truncate">
+                          {isLoggedIn ? `${userProfile.role} · ${userProfile.department}` : "暂未登录账号"}
+                        </div>
+                      </div>
+
+                      <div className="space-y-0.5">
+                        {isLoggedIn ? (
+                          <>
+                            <button 
+                              onClick={() => { setActiveTab("settings"); setShowUserDropdown(false); }}
+                              className="w-full flex items-center gap-2 px-2.5 py-1.5 text-slate-700 hover:bg-slate-100 rounded-lg transition-colors text-left cursor-pointer"
+                            >
+                              <User className="w-3.5 h-3.5 text-slate-400" />
+                              <span>个人资料与系统设置</span>
+                            </button>
+                            <button 
+                              onClick={() => { setShowUserDropdown(false); setShowLoginModal(true); }}
+                              className="w-full flex items-center gap-2 px-2.5 py-1.5 text-slate-700 hover:bg-slate-100 rounded-lg transition-colors text-left cursor-pointer"
+                            >
+                              <RefreshCw className="w-3.5 h-3.5 text-indigo-500" />
+                              <span className="text-indigo-600 font-medium">切换账号 / 预设身份</span>
+                            </button>
+                            <div className="my-1 border-t border-slate-100"></div>
+                            <button 
+                              onClick={handleLogout}
+                              className="w-full flex items-center gap-2 px-2.5 py-1.5 text-rose-600 hover:bg-rose-50 rounded-lg transition-colors text-left font-medium cursor-pointer"
+                            >
+                              <LogOut className="w-3.5 h-3.5 text-rose-500" />
+                              <span>退出登录</span>
+                            </button>
+                          </>
+                        ) : (
+                          <button 
+                            onClick={() => { setShowUserDropdown(false); setShowLoginModal(true); }}
+                            className="w-full flex items-center justify-center gap-2 px-3 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg transition-colors text-center font-medium shadow-xs cursor-pointer"
+                          >
+                            <LogIn className="w-3.5 h-3.5" />
+                            <span>立即登录账号</span>
+                          </button>
+                        )}
+                      </div>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+
+                {/* Card Trigger */}
+                <div className="flex items-center justify-between gap-2 bg-white border border-slate-150 rounded-xl p-2.5 shadow-3xs hover:border-slate-300 transition-all">
+                  <div 
+                    onClick={() => setShowUserDropdown(!showUserDropdown)} 
+                    className="flex items-center gap-2.5 flex-1 min-w-0 cursor-pointer"
+                  >
+                    <div className={`w-8 h-8 rounded-full border flex items-center justify-center font-bold text-xs shrink-0 ${
+                      isLoggedIn 
+                        ? "bg-indigo-50 border-indigo-200 text-indigo-700" 
+                        : "bg-slate-100 border-slate-200 text-slate-400"
+                    }`}>
+                      {isLoggedIn ? userProfile.name.slice(0, 1) : <User className="w-4 h-4" />}
+                    </div>
+                    <div className="text-left flex-1 min-w-0">
+                      <h4 className="text-[11px] font-bold text-slate-800 leading-tight truncate">
+                        {isLoggedIn ? userProfile.name : "未登录"}
+                      </h4>
+                      <p className="text-[9px] text-slate-400 font-mono leading-none mt-0.5 truncate">
+                        {isLoggedIn ? userProfile.role : "点击选择账号登录"}
+                      </p>
+                    </div>
                   </div>
-                  <div className="text-left flex-1 min-w-0">
-                    <h4 className="text-[11px] font-bold text-slate-800 leading-tight">{userProfile.name}</h4>
-                    <p className="text-[9px] text-slate-400 font-mono leading-none mt-0.5 truncate">{userProfile.role}</p>
-                  </div>
+
                   <div className="flex items-center gap-1 shrink-0">
-                    <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full shadow-sm shadow-emerald-200" title="在线"></span>
-                    {isNavExpanded ? (
-                      <ChevronDown className="w-3.5 h-3.5 text-slate-400 ml-0.5 transition-transform duration-200 rotate-180" />
+                    {isLoggedIn ? (
+                      <button 
+                        onClick={handleLogout}
+                        title="退出登录"
+                        className="p-1 hover:bg-rose-50 rounded-md text-slate-400 hover:text-rose-600 transition-colors cursor-pointer"
+                      >
+                        <LogOut className="w-3.5 h-3.5" />
+                      </button>
                     ) : (
-                      <ChevronUp className="w-3.5 h-3.5 text-slate-400 ml-0.5 transition-transform duration-200 rotate-180" />
+                      <button 
+                        onClick={() => setShowLoginModal(true)}
+                        title="点击登录"
+                        className="px-2 py-1 bg-indigo-600 hover:bg-indigo-700 text-white text-[10px] font-medium rounded-md transition-colors cursor-pointer"
+                      >
+                        登录
+                      </button>
                     )}
+                    <button 
+                      onClick={toggleNavExpanded} 
+                      title={isNavExpanded ? "收起功能导航" : "展开功能导航"}
+                      className="p-1 hover:bg-slate-100 rounded-md text-slate-400 hover:text-slate-600 transition-colors cursor-pointer"
+                    >
+                      <ChevronUp className={`w-3.5 h-3.5 transition-transform duration-200 ${isNavExpanded ? "" : "rotate-180"}`} />
+                    </button>
                   </div>
                 </div>
               </div>
@@ -1680,1939 +1947,135 @@ export default function App() {
                 1. DIALOGUE VIEW
                 ======================================================== */}
             {activeTab === "dialogue" && (
-              <motion.div 
-                key="dialogue-view"
-                initial={{ opacity: 0, y: 5 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -5 }}
-                transition={{ duration: 0.15 }}
-                className="flex h-full w-full relative"
-                onDragEnter={handleDragEnter}
-                onDragOver={handleDragOver}
-                onDragLeave={handleDragLeave}
-                onDrop={handleDrop}
-              >
-                {isDraggingFile && (
-                  <div className="absolute inset-0 bg-slate-900/65 backdrop-blur-xs z-50 flex flex-col items-center justify-center text-white p-6 transition-all pointer-events-none">
-                    <div className="w-16 h-16 rounded-full bg-white/10 border border-white/20 flex items-center justify-center mb-4 animate-bounce">
-                      <Upload className="w-8 h-8 text-white" />
-                    </div>
-                    <h3 className="text-lg font-semibold font-display">将文件拖拽到此处上传</h3>
-                    <p className="text-xs text-white/70 mt-1">支持拖拽图片、文本、PDF 等格式文件自动关联到本轮对话</p>
-                  </div>
-                )}
-
-                {/* Main Conversation Room */}
-                <div className="flex-1 flex flex-col h-full bg-white relative">
-                  
-                  {/* Active Session Info Header */}
-                  <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between shrink-0">
-                    <div>
-                      <h3 className="font-display font-semibold text-sm text-slate-800">
-                        {activeSession ? activeSession.title : "开始探索"}
-                      </h3>
-                    </div>
-                  </div>
-
-                  {/* Message Bubble Field */}
-                  <div className="flex-1 overflow-y-auto px-6 pt-4 pb-36 space-y-6">
-                    {!activeSession || activeSession.messages.length === 0 ? (
-                      /* Chat Empty State / Quick automation prompts */
-                      <div className="max-w-2xl mx-auto py-12 flex flex-col items-center justify-center">
-                        <div className="w-12 h-12 bg-slate-50 border border-slate-100 rounded-2xl flex items-center justify-center text-slate-700 mb-4 shadow-xs">
-                          <Sparkles className="w-6 h-6 animate-pulse" />
-                        </div>
-                        <h2 className="font-display font-semibold text-base text-slate-900">我是企业办公自动化助手</h2>
-                        <p className="text-xs text-slate-500 text-center mt-1.5 max-w-md">
-                          我可以整合您的画像记忆、调动已安装的自动化技能包或查询外部 MCP 数据库。点击下方精选卡片一键下达自动化任务：
-                        </p>
-
-                        <div className="grid grid-cols-2 gap-3.5 w-full mt-8">
-                          
-                          <button 
-                            onClick={() => {
-                              setInputMessage("帮我把本周测试的3个技能组件、对接的MCP接口以及画像起效的成果，整理成一份标准的运营周报汇总。");
-                            }}
-                            className="p-3.5 rounded-xl border border-slate-200 hover:border-slate-400 bg-white hover:bg-slate-50/50 text-left transition-all shadow-xs"
-                          >
-                            <div className="text-indigo-600 font-semibold text-xs flex items-center gap-1.5 mb-1">
-                              <TrendingUp className="w-3.5 h-3.5 text-indigo-500" /> 周报计划极速生成
-                            </div>
-                            <p className="text-[11px] text-slate-500 leading-normal">
-                              聚合我的工作记录，根据画像偏好一键整理标准周报和下周计划。
-                            </p>
-                          </button>
-
-                          <button 
-                            onClick={() => {
-                              setInputMessage("检查当前 MCP 服务器连接状态，并调用 saas_db_analytical_portal 工具查询今日接口错误指标。");
-                            }}
-                            className="p-3.5 rounded-xl border border-slate-200 hover:border-slate-400 bg-white hover:bg-slate-50/50 text-left transition-all shadow-xs"
-                          >
-                            <div className="text-emerald-600 font-semibold text-xs flex items-center gap-1.5 mb-1">
-                              <Link className="w-3.5 h-3.5 text-emerald-500" /> 连通 MCP 工具检索
-                            </div>
-                            <p className="text-[11px] text-slate-500 leading-normal">
-                              穿透本地中继通道，调用已注册的外部系统数据库或 API 获得实时日志。
-                            </p>
-                          </button>
-
-                          <button 
-                            onClick={() => {
-                              setInputMessage("调用文档智能解析技能，帮我拟一封符合中高层汇报调性的邮件草稿，解释系统正常连通。");
-                            }}
-                            className="p-3.5 rounded-xl border border-slate-200 hover:border-slate-400 bg-white hover:bg-slate-50/50 text-left transition-all shadow-xs"
-                          >
-                            <div className="text-amber-600 font-semibold text-xs flex items-center gap-1.5 mb-1">
-                              <Mail className="w-3.5 h-3.5 text-amber-500" /> 智能商务邮件拟写
-                            </div>
-                            <p className="text-[11px] text-slate-500 leading-normal">
-                              使用极简文字一键扩展出礼貌、谦逊的职场商务邮件回复，一键拟好。
-                            </p>
-                          </button>
-
-                          <button 
-                            onClick={() => {
-                              setInputMessage("告诉我关于你记住的‘我的画像和认知事实’，我可以怎么调整？");
-                            }}
-                            className="p-3.5 rounded-xl border border-slate-200 hover:border-slate-400 bg-white hover:bg-slate-50/50 text-left transition-all shadow-xs"
-                          >
-                            <div className="text-slate-700 font-semibold text-xs flex items-center gap-1.5 mb-1">
-                              <Brain className="w-3.5 h-3.5 text-slate-500" /> 自定义画像与事实调整
-                            </div>
-                            <p className="text-[11px] text-slate-500 leading-normal">
-                              核实 AI 是否记住了我的专业背景，以及如何在此基础上定制写作规则。
-                            </p>
-                          </button>
-
-                        </div>
-                      </div>
-                    ) : (
-                      <div className="space-y-6 max-w-4xl mx-auto">
-                        {activeSession.messages.map((msg) => {
-                          const isUser = msg.role === "user";
-                          return (
-                            <div 
-                              key={msg.id}
-                              className={`flex flex-col ${isUser ? "items-end" : "items-start"}`}
-                            >
-                              <div className="flex items-center gap-2 mb-1.5 text-[10px] text-slate-400">
-                                <span>{isUser ? userProfile.name : "Office AI 助理"}</span>
-                                <span>•</span>
-                                <span>{msg.timestamp}</span>
-                              </div>
-
-                              {isUser ? (
-                                <div className="flex flex-col items-end gap-2 max-w-3xl">
-                                  <div className="p-4 rounded-2xl leading-relaxed text-sm bg-slate-900 text-white rounded-tr-none shadow-sm whitespace-pre-wrap">
-                                    {renderFormattedTextWithSkills(msg.content, true)}
-                                  </div>
-                                  {msg.attachments && msg.attachments.length > 0 && (
-                                    <div className="flex flex-wrap gap-2 justify-end mt-1">
-                                      {msg.attachments.map((file, fIdx) => (
-                                        <div key={fIdx} className="bg-slate-50 border border-slate-200/80 rounded-xl p-2 flex items-center gap-2.5 max-w-xs text-xs text-slate-700 shadow-3xs">
-                                          {file.isImage ? (
-                                            <a href={file.url} target="_blank" rel="noopener noreferrer" className="relative group cursor-zoom-in shrink-0">
-                                              <img src={file.url} alt={file.name} className="w-12 h-12 object-cover rounded-lg border border-slate-200" referrerPolicy="no-referrer" />
-                                            </a>
-                                          ) : (
-                                            <div className="w-10 h-10 rounded-lg bg-indigo-50 border border-indigo-100 flex items-center justify-center text-indigo-600 shrink-0">
-                                              <FileText className="w-5 h-5" />
-                                            </div>
-                                          )}
-                                          <div className="min-w-0 flex-1">
-                                            <p className="font-semibold truncate text-[11px] text-slate-800" title={file.name}>{file.name}</p>
-                                            <p className="text-[10px] text-slate-400 font-mono mt-0.5">{file.size}</p>
-                                          </div>
-                                          {!file.isImage && file.url && (
-                                            <a 
-                                              href={file.url} 
-                                              download={file.name}
-                                              className="p-1 rounded-md hover:bg-slate-200 text-slate-400 hover:text-slate-600 transition-colors shrink-0"
-                                              title="下载"
-                                            >
-                                              <Upload className="w-3.5 h-3.5 rotate-180" />
-                                            </a>
-                                          )}
-                                        </div>
-                                      ))}
-                                    </div>
-                                  )}
-                                </div>
-                              ) : (
-                                <div className="w-full max-w-3xl flex flex-col gap-3.5">
-                                  {/* Collapsible Agent Execution Trace Panel */}
-                                  {(msg.thinking || (msg.toolsUsed && msg.toolsUsed.length > 0)) && (
-                                    <div className="w-full bg-slate-50/70 border border-slate-200/60 rounded-xl overflow-hidden transition-all duration-200 hover:border-slate-300 shadow-3xs">
-                                      {/* Banner Bar */}
-                                      <div 
-                                        onClick={() => setExpandedThinking(prev => ({ ...prev, [msg.id]: !prev[msg.id] }))}
-                                        className="flex items-center justify-between px-4 py-2.5 bg-slate-50 hover:bg-slate-100/50 cursor-pointer select-none border-b border-slate-100"
-                                      >
-                                        <div className="flex items-center gap-2">
-                                          <div className="w-5 h-5 rounded-full bg-indigo-50 flex items-center justify-center">
-                                            <Terminal className="w-3 h-3 text-indigo-600 animate-pulse" />
-                                          </div>
-                                          <span className="text-xs font-semibold text-slate-700 font-sans flex items-center gap-1.5">
-                                            <span>AI Agent 运行记录与链路分析</span>
-                                            {msg.toolsUsed && msg.toolsUsed.length > 0 && (
-                                              <span className="px-1.5 py-0.2 bg-indigo-100 text-indigo-800 rounded text-[9px] font-mono font-bold">
-                                                调用 {msg.toolsUsed.length} 个工具
-                                              </span>
-                                            )}
-                                          </span>
-                                        </div>
-                                        <div className="flex items-center gap-1.5">
-                                          <span className="text-[10px] text-slate-400 font-sans font-medium">
-                                            {expandedThinking[msg.id] ? "收起日志" : "展开执行路径"}
-                                          </span>
-                                          {expandedThinking[msg.id] ? (
-                                            <ChevronUp className="w-3.5 h-3.5 text-slate-400" />
-                                          ) : (
-                                            <ChevronDown className="w-3.5 h-3.5 text-slate-400" />
-                                          )}
-                                        </div>
-                                      </div>
-
-                                      {/* Detailed Logs as a chronological step-by-step timeline */}
-                                      {expandedThinking[msg.id] && (
-                                        <div className="p-5 bg-white border-t border-slate-100 space-y-4">
-                                          <div className="flex items-center gap-1.5 text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">
-                                            <Brain className="w-3.5 h-3.5 text-indigo-500" />
-                                            <span>时序链路执行轨迹 (Chronological Execution Path)</span>
-                                          </div>
-
-                                          {(() => {
-                                            const thoughts = msg.thinking ? msg.thinking.split('\n').filter(line => line.trim()) : [];
-                                            const tools = msg.toolsUsed || [];
-                                            const timeline: { type: "thought" | "tool"; text: string; tool?: any }[] = [];
-
-                                            if (thoughts.length > 0 && tools.length > 0) {
-                                              // Split preparatory thoughts to put tool calls in the middle logically
-                                              const splitIndex = Math.max(1, Math.min(Math.floor(thoughts.length / 2), thoughts.length - 1));
-                                              
-                                              thoughts.slice(0, splitIndex).forEach(t => {
-                                                timeline.push({ type: "thought", text: t });
-                                              });
-                                              
-                                              tools.forEach(tool => {
-                                                timeline.push({ type: "tool", text: `调用外部系统接口: ${tool.name}`, tool });
-                                              });
-                                              
-                                              thoughts.slice(splitIndex).forEach(t => {
-                                                timeline.push({ type: "thought", text: t });
-                                              });
-                                            } else if (thoughts.length > 0) {
-                                              thoughts.forEach(t => {
-                                                timeline.push({ type: "thought", text: t });
-                                              });
-                                            } else if (tools.length > 0) {
-                                              tools.forEach(tool => {
-                                                timeline.push({ type: "tool", text: `调用外部系统接口: ${tool.name}`, tool });
-                                              });
-                                            }
-
-                                            return (
-                                              <div className="relative border-l border-slate-200 ml-4 pl-6 space-y-5 py-2">
-                                                {timeline.map((event, idx) => {
-                                                  const isTool = event.type === "tool";
-                                                  const isCurrentActiveStep = msg.id === activeStreamingMessageId && idx === timeline.length - 1;
-                                                  
-                                                  return (
-                                                    <div key={idx} className="relative group/step">
-                                                      {/* Circle Bullet on Timeline Line */}
-                                                      {isCurrentActiveStep ? (
-                                                        <div className="absolute -left-[32px] top-1 w-3 h-3 flex items-center justify-center bg-white rounded-full">
-                                                          <Loader2 className={`w-3.5 h-3.5 animate-spin ${isTool ? "text-amber-500" : "text-indigo-500"}`} />
-                                                        </div>
-                                                      ) : (
-                                                        <div className={`absolute -left-[31px] top-1.5 w-2.5 h-2.5 rounded-full border-2 transition-colors duration-200 ${
-                                                          isTool 
-                                                            ? "bg-amber-500 border-white ring-4 ring-amber-50/50 group-hover/step:ring-amber-100" 
-                                                            : "bg-indigo-500 border-white ring-4 ring-indigo-50/50 group-hover/step:ring-indigo-100"
-                                                        }`} />
-                                                      )}
-                                                      
-                                                      {/* Step details */}
-                                                      {isTool ? (
-                                                        <div className={`bg-slate-50/60 border rounded-xl p-3.5 space-y-2.5 shadow-3xs transition-all duration-200 ${
-                                                          isCurrentActiveStep 
-                                                            ? "border-amber-400 bg-amber-50/10 shadow-xs ring-2 ring-amber-500/15" 
-                                                            : "border-slate-200/60 hover:border-slate-300"
-                                                        }`}>
-                                                          <div className="flex items-center justify-between">
-                                                            <div className="flex items-center gap-2">
-                                                              <div className="w-5 h-5 rounded bg-amber-500/10 flex items-center justify-center text-amber-600">
-                                                                <Play className={`w-3 h-3 fill-amber-600 ${isCurrentActiveStep ? "animate-pulse" : ""}`} />
-                                                              </div>
-                                                              <span className={`font-mono text-xs font-bold ${isCurrentActiveStep ? "text-amber-700" : "text-slate-800"}`}>
-                                                                {event.tool.name}
-                                                              </span>
-                                                            </div>
-                                                            {isCurrentActiveStep ? (
-                                                              <span className="px-2 py-0.5 text-[9px] bg-amber-50 text-amber-700 border border-amber-200 rounded-full font-mono font-bold animate-pulse">
-                                                                工具执行中...
-                                                              </span>
-                                                            ) : (
-                                                              <span className="px-2 py-0.5 text-[9px] bg-emerald-50 text-emerald-700 border border-emerald-100 rounded-full font-mono font-bold">
-                                                                执行成功
-                                                              </span>
-                                                            )}
-                                                          </div>
-                                                          
-                                                          {/* Expanded JSON details for parameters & output */}
-                                                          <div className="space-y-2 pt-2 border-t border-slate-200/30 text-[11px] text-slate-600">
-                                                            <details className="group" open={isCurrentActiveStep}>
-                                                              <summary className="list-none flex items-center gap-1.5 cursor-pointer text-slate-500 hover:text-slate-800 font-medium select-none">
-                                                                <ChevronRight className="w-3.5 h-3.5 group-open:rotate-90 transition-transform text-slate-400" />
-                                                                <span>输入参数 (Parameters)</span>
-                                                              </summary>
-                                                              <div className="mt-1.5 pl-3 border-l-2 border-slate-200 py-1 font-mono text-[10px] text-slate-600 overflow-x-auto whitespace-pre-wrap bg-slate-100/50 rounded-md p-2">
-                                                                {event.tool.args}
-                                                              </div>
-                                                            </details>
-                                                            
-                                                            {event.tool.result && (
-                                                              <details className="group">
-                                                                <summary className="list-none flex items-center gap-1.5 cursor-pointer text-slate-500 hover:text-slate-800 font-medium select-none mt-1">
-                                                                  <ChevronRight className="w-3.5 h-3.5 group-open:rotate-90 transition-transform text-slate-400" />
-                                                                  <span>输出反馈 (Result Context)</span>
-                                                                </summary>
-                                                                <div className="mt-1.5 pl-3 border-l-2 border-emerald-200 py-1 font-mono text-[10px] text-emerald-800 overflow-x-auto bg-emerald-50/40 rounded-md p-2">
-                                                                  {event.tool.result}
-                                                                </div>
-                                                              </details>
-                                                            )}
-                                                          </div>
-                                                        </div>
-                                                      ) : (
-                                                        <div className="flex flex-col gap-0.5 pl-1">
-                                                          <span className={`text-xs font-medium leading-relaxed font-sans transition-all duration-200 ${
-                                                            isCurrentActiveStep 
-                                                              ? "text-indigo-600 font-bold bg-indigo-50/40 border-l-2 border-indigo-500 pl-2 py-0.5" 
-                                                              : "text-slate-700"
-                                                          }`}>
-                                                            {renderFormattedTextWithSkills(event.text)}
-                                                          </span>
-                                                        </div>
-                                                      )}
-                                                    </div>
-                                                  );
-                                                })}
-                                                
-                                                {/* Status indicator bullet indicating completion or active pipeline state */}
-                                                {msg.id === activeStreamingMessageId ? (
-                                                  <div className="relative group/step animate-pulse">
-                                                    <div className="absolute -left-[32px] top-1 w-3 h-3 flex items-center justify-center bg-white rounded-full">
-                                                      <Loader2 className="w-3.5 h-3.5 text-indigo-500 animate-spin" />
-                                                    </div>
-                                                    <div className="flex flex-col gap-0.5 pl-1">
-                                                      <span className="text-xs text-indigo-600 font-bold font-sans">
-                                                        AI Agent 自动化流水线流式响应中...
-                                                      </span>
-                                                    </div>
-                                                  </div>
-                                                ) : (
-                                                  <div className="relative group/step">
-                                                    <div className="absolute -left-[31px] top-1.5 w-2.5 h-2.5 rounded-full bg-emerald-500 border-white ring-4 ring-emerald-50/50" />
-                                                    <div className="flex flex-col gap-0.5 pl-1">
-                                                      <span className="text-xs text-emerald-700 font-semibold font-sans">
-                                                        大模型成果整合就绪
-                                                      </span>
-                                                    </div>
-                                                  </div>
-                                                )}
-                                              </div>
-                                            );
-                                          })()}
-                                        </div>
-                                      )}
-                                    </div>
-                                  )}
-
-                                  {/* The Core Deliverable Report Card / Main Text Response */}
-                                  <div className="w-full bg-white border border-slate-200/80 rounded-2xl shadow-xs overflow-hidden relative group/card hover:shadow-sm transition-shadow max-w-3xl">
-                                    
-                                    {/* Hover Copy Action Utility */}
-                                    <div className="absolute top-3 right-3 opacity-0 group-hover/card:opacity-100 transition-opacity duration-200 z-10">
-                                      <button
-                                        onClick={() => handleCopyContent(msg.content, msg.id)}
-                                        className="p-1.5 bg-white border border-slate-200/80 hover:bg-slate-50 text-slate-400 hover:text-slate-700 rounded-lg shadow-2xs hover:shadow-xs transition-all flex items-center gap-1 text-[11px] font-semibold cursor-pointer"
-                                        title="复制文本"
-                                      >
-                                        {copiedMsgId === msg.id ? (
-                                          <>
-                                            <Check className="w-3.5 h-3.5 text-emerald-600" />
-                                            <span className="text-emerald-700 font-semibold font-sans">已复制</span>
-                                          </>
-                                        ) : (
-                                          <>
-                                            <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg>
-                                            <span>复制</span>
-                                          </>
-                                        )}
-                                      </button>
-                                    </div>
-
-                                    {/* Main Prose Content */}
-                                    <div className="p-6 prose-custom text-slate-800 leading-relaxed font-sans text-sm">
-                                      <Markdown 
-                                        remarkPlugins={[remarkGfm]}
-                                        components={{
-                                          a: ({ href, children }) => {
-                                            if (href && href.startsWith("skill:")) {
-                                              return (
-                                                <span className="text-emerald-600 font-extrabold bg-emerald-50 border border-emerald-200/80 px-1.5 py-0.5 rounded-md mx-1 shadow-3xs inline-flex items-center gap-1.5 align-baseline select-all">
-                                                  <Layers className="w-3.5 h-3.5 text-emerald-500 inline animate-pulse" />
-                                                  {children}
-                                                </span>
-                                              );
-                                            }
-                                            return <a href={href} className="text-indigo-600 hover:underline" target="_blank" rel="noopener noreferrer">{children}</a>;
-                                          }
-                                        }}
-                                      >
-                                        {preprocessMarkdown(msg.content)}
-                                      </Markdown>
-                                    </div>
-                                  </div>
-                                </div>
-                              )}
-                            </div>
-                          );
-                        })}
-
-                        {/* Sending indicator */}
-                        {isSending && (
-                          <div className="flex flex-col items-start">
-                            <div className="flex items-center gap-2 mb-1.5 text-[10px] text-slate-400">
-                              <span>Office AI 助理</span>
-                              <span>•</span>
-                              <span>思考中...</span>
-                            </div>
-                            <div className="p-4 rounded-2xl bg-slate-50 border border-slate-100 rounded-tl-none shadow-xs">
-                              <div className="flex gap-1.5 items-center justify-center py-1">
-                                <div className="w-2.5 h-2.5 bg-slate-400 rounded-full animate-pulse-dot"></div>
-                                <div className="w-2.5 h-2.5 bg-slate-400 rounded-full animate-pulse-dot" style={{ animationDelay: "0.2s" }}></div>
-                                <div className="w-2.5 h-2.5 bg-slate-400 rounded-full animate-pulse-dot" style={{ animationDelay: "0.4s" }}></div>
-                              </div>
-                            </div>
-                          </div>
-                        )}
-                      </div>
-                    )}
-                    <div ref={messagesEndRef} />
-                  </div>
-
-                  {/* Input Box Footer */}
-                  <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-white via-white/90 to-transparent pt-12 pb-6 px-6 shrink-0 z-30 pointer-events-none">
-                    <div className="max-w-4xl mx-auto pointer-events-auto">
-                      <div className="relative border border-slate-200/90 focus-within:border-slate-400 focus-within:shadow-md rounded-2xl transition-all shadow-md flex flex-col bg-white/95 backdrop-blur-md">
-                        
-                        {/* 1. Pending Attachments List Preview */}
-                        {pendingAttachments.length > 0 && (
-                          <div className="px-3.5 pt-3.5 pb-2 border-b border-slate-100 flex flex-wrap gap-2">
-                            {pendingAttachments.map((file, idx) => (
-                              <div key={idx} className="relative bg-slate-50 border border-slate-200 rounded-lg p-2 pr-8 flex items-center gap-2 text-xs text-slate-700 shadow-3xs max-w-xs">
-                                {file.isImage ? (
-                                  <img src={file.url} alt={file.name} className="w-8 h-8 object-cover rounded-md border border-slate-200" referrerPolicy="no-referrer" />
-                                ) : (
-                                  <div className="w-8 h-8 rounded-md bg-indigo-50 border border-indigo-100 flex items-center justify-center text-indigo-600 shrink-0">
-                                    <FileText className="w-4 h-4" />
-                                  </div>
-                                )}
-                                <div className="min-w-0 flex-1">
-                                  <p className="font-semibold truncate text-[11px] text-slate-800" title={file.name}>{file.name}</p>
-                                  <p className="text-[9px] text-slate-400 font-mono mt-0.5">{file.size}</p>
-                                </div>
-                                <button 
-                                  onClick={() => {
-                                    setPendingAttachments(prev => prev.filter((_, i) => i !== idx));
-                                  }}
-                                  className="absolute top-1 right-1 p-0.5 rounded-full hover:bg-slate-200 text-slate-400 hover:text-slate-600 cursor-pointer transition-colors"
-                                  title="移除"
-                                >
-                                  <X className="w-3 h-3" />
-                                </button>
-                              </div>
-                            ))}
-                          </div>
-                        )}
-
-                        {/* 0. Slash Command Skills Dropdown Panel */}
-                        {showSkillsDropdown && (
-                          <div className="absolute bottom-full mb-2 left-0 right-0 bg-white border border-slate-200/95 rounded-xl shadow-lg overflow-hidden max-h-60 overflow-y-auto z-40 flex flex-col divide-y divide-slate-100">
-                            <div className="px-3.5 py-1.5 bg-slate-50/80 text-[10px] font-semibold text-slate-400 flex items-center justify-between shrink-0">
-                              <span className="flex items-center gap-1">
-                                <Sparkles className="w-3.5 h-3.5 text-amber-500 shrink-0" />
-                                <span>显式引用自动化技能 (键盘上下键选择，回车确认)</span>
-                              </span>
-                              <span>{filteredSkillsForDropdown.length} 项可用</span>
-                            </div>
-                            {filteredSkillsForDropdown.length > 0 ? (
-                              filteredSkillsForDropdown.map((skill, idx) => (
-                                <button
-                                  key={skill.id}
-                                  type="button"
-                                  onClick={() => selectSkillForInput(skill)}
-                                  className={`w-full text-left px-3.5 py-2 flex items-start gap-3 transition-colors cursor-pointer ${
-                                    idx === selectedDropdownIndex 
-                                      ? "bg-slate-50 text-slate-900 font-semibold" 
-                                      : "text-slate-600 hover:bg-slate-50/50"
-                                  }`}
-                                >
-                                  <div className={`p-1 rounded-md shrink-0 mt-0.5 ${
-                                    skill.enabled 
-                                      ? "bg-emerald-50 text-emerald-600 border border-emerald-100" 
-                                      : "bg-slate-50 text-slate-400 border border-slate-100"
-                                  }`}>
-                                    <Layers className="w-3.5 h-3.5" />
-                                  </div>
-                                  <div className="min-w-0 flex-1 py-0.5">
-                                    <div className="flex items-center gap-2">
-                                      <span className="text-xs text-slate-800">{skill.name}</span>
-                                      {skill.enabled ? (
-                                        <span className="px-1 py-0.2 text-[8px] font-medium bg-emerald-50 text-emerald-600 border border-emerald-100/50 rounded-sm">已就绪</span>
-                                      ) : (
-                                        <span className="px-1 py-0.2 text-[8px] font-medium bg-slate-100 text-slate-400 border border-slate-200/50 rounded-sm">未开启</span>
-                                      )}
-                                    </div>
-                                    <p className="text-[10px] text-slate-400 truncate mt-0.5">{skill.description}</p>
-                                  </div>
-                                </button>
-                              ))
-                            ) : (
-                              <div className="px-4 py-4 text-center text-xs text-slate-400 bg-white">
-                                未找到匹配的自动化技能
-                              </div>
-                            )}
-                          </div>
-                        )}
-
-                        {/* 2. Textarea input */}
-                        <textarea 
-                          id="chat-textarea"
-                          value={inputMessage}
-                          onChange={(e) => {
-                            const value = e.target.value;
-                            setInputMessage(value);
-                            
-                            // Check if slash command is typed
-                            const lastSlashIndex = value.lastIndexOf("/");
-                            if (lastSlashIndex !== -1 && (lastSlashIndex === 0 || value[lastSlashIndex - 1] === " " || value[lastSlashIndex - 1] === "\n")) {
-                              const query = value.slice(lastSlashIndex + 1);
-                              // Slash query shouldn't contain a space
-                              if (!query.includes(" ")) {
-                                setShowSkillsDropdown(true);
-                                setSearchSkillText(query);
-                                setSelectedDropdownIndex(0);
-                                return;
-                              }
-                            }
-                            setShowSkillsDropdown(false);
-                          }}
-                          onKeyDown={(e) => {
-                            if (showSkillsDropdown) {
-                              if (e.key === "ArrowDown") {
-                                e.preventDefault();
-                                setSelectedDropdownIndex(prev => 
-                                  prev < filteredSkillsForDropdown.length - 1 ? prev + 1 : 0
-                                );
-                              } else if (e.key === "ArrowUp") {
-                                e.preventDefault();
-                                setSelectedDropdownIndex(prev => 
-                                  prev > 0 ? prev - 1 : filteredSkillsForDropdown.length - 1
-                                );
-                              } else if (e.key === "Enter") {
-                                e.preventDefault();
-                                if (filteredSkillsForDropdown[selectedDropdownIndex]) {
-                                  selectSkillForInput(filteredSkillsForDropdown[selectedDropdownIndex]);
-                                }
-                              } else if (e.key === "Escape") {
-                                e.preventDefault();
-                                setShowSkillsDropdown(false);
-                              }
-                            } else {
-                              if (e.key === "Enter" && !e.shiftKey) {
-                                e.preventDefault();
-                                handleSendMessage();
-                              }
-                            }
-                          }}
-                          placeholder="输入自动化任务指令，如‘帮我写周报草稿’。输入 '/' 可以呼出自动化技能包列表..."
-                          rows={2}
-                          className="w-full px-3.5 pt-3.5 pb-2 text-sm focus:outline-hidden resize-none placeholder-slate-400 border-none bg-transparent min-h-[60px]"
-                        />
-
-                        {/* Hidden inputs for uploading */}
-                        <input 
-                          type="file" 
-                          ref={fileInputRef} 
-                          className="hidden" 
-                          multiple 
-                          onChange={(e) => {
-                            if (e.target.files) processFiles(e.target.files);
-                            e.target.value = ''; // Reset to allow re-upload of same file
-                          }} 
-                        />
-                        <input 
-                          type="file" 
-                          ref={imageInputRef} 
-                          className="hidden" 
-                          accept="image/*" 
-                          multiple 
-                          onChange={(e) => {
-                            if (e.target.files) processFiles(e.target.files);
-                            e.target.value = ''; // Reset to allow re-upload of same file
-                          }} 
-                        />
-
-                        {/* 3. Bottom actions bar */}
-                        <div className="flex items-center justify-between px-3.5 py-2.5 border-t border-slate-100 bg-slate-50/35 rounded-b-xl">
-                          {/* Left: Upload Buttons */}
-                          <div className="flex items-center gap-1.5">
-                            <button
-                              type="button"
-                              onClick={() => fileInputRef.current?.click()}
-                              className="p-1.5 text-slate-500 hover:text-slate-800 hover:bg-slate-100 rounded-lg transition-all flex items-center gap-1 text-xs font-medium cursor-pointer"
-                              title="上传文档/文件"
-                            >
-                              <Paperclip className="w-4 h-4" />
-                              <span className="hidden sm:inline">文档</span>
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => imageInputRef.current?.click()}
-                              className="p-1.5 text-slate-500 hover:text-slate-800 hover:bg-slate-100 rounded-lg transition-all flex items-center gap-1 text-xs font-medium cursor-pointer"
-                              title="上传图片"
-                            >
-                              <Image className="w-4 h-4" />
-                              <span className="hidden sm:inline">图片</span>
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setSearchSkillText("");
-                                setShowSkillsDropdown(!showSkillsDropdown);
-                              }}
-                              className={`p-1.5 rounded-lg transition-all flex items-center gap-1.5 text-xs font-medium cursor-pointer ${
-                                showSkillsDropdown 
-                                  ? "text-emerald-600 bg-emerald-50 border border-emerald-200/50" 
-                                  : "text-slate-500 hover:text-slate-800 hover:bg-slate-100"
-                              }`}
-                              title="插入/引用技能"
-                            >
-                              <Layers className="w-4 h-4 text-emerald-500" />
-                              <span className="hidden sm:inline">技能</span>
-                            </button>
-                          </div>
-
-                          {/* Right: Model dropdown select & Send button */}
-                          <div className="flex items-center gap-2">
-                            {/* Model Select dropdown adjacent to Send button */}
-                            <div className="flex items-center gap-1.5 bg-white border border-slate-200/85 hover:bg-slate-50 hover:border-slate-300 rounded-lg px-2.5 py-1.5 shadow-3xs transition-all">
-                              <Brain className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                              <select 
-                                value={selectedModelId}
-                                onChange={(e) => setSelectedModelId(e.target.value)}
-                                className="bg-transparent border-none text-[11px] font-medium text-slate-600 hover:text-slate-800 cursor-pointer focus:ring-0 focus:outline-hidden py-0 pl-0 pr-1.5 select-none leading-none"
-                              >
-                                {modelConfigs.filter(m => m.enabled).map(m => (
-                                  <option key={m.id} value={m.id}>{m.name}</option>
-                                ))}
-                              </select>
-                            </div>
-
-                            {/* Send Button */}
-                            <button 
-                              type="button"
-                              onClick={() => handleSendMessage()}
-                              disabled={(!inputMessage.trim() && pendingAttachments.length === 0) || isSending}
-                              className={`p-1.5 px-3 rounded-lg flex items-center gap-1.5 text-xs font-semibold transition-colors cursor-pointer ${
-                                (inputMessage.trim() || pendingAttachments.length > 0) && !isSending 
-                                  ? "bg-slate-900 text-white hover:bg-slate-800" 
-                                  : "bg-slate-100 text-slate-400 border border-slate-200/40 cursor-not-allowed"
-                              }`}
-                              title="发送"
-                            >
-                              <span>发送</span>
-                              <Send className="w-3.5 h-3.5" />
-                            </button>
-                          </div>
-                        </div>
-
-                      </div>
-                    </div>
-                  </div>
-
-                </div>
-              </motion.div>
+              <DialogueView 
+                isDraggingFile={isDraggingFile}
+                handleDragEnter={handleDragEnter}
+                handleDragOver={handleDragOver}
+                handleDragLeave={handleDragLeave}
+                handleDrop={handleDrop}
+                activeSession={activeSession}
+                isLoggedIn={isLoggedIn}
+                userProfile={userProfile}
+                setShowLoginModal={setShowLoginModal}
+                handleLogout={handleLogout}
+                setInputMessage={setInputMessage}
+                renderFormattedTextWithSkills={renderFormattedTextWithSkills}
+                expandedThinking={expandedThinking}
+                setExpandedThinking={setExpandedThinking}
+                activeStreamingMessageId={activeStreamingMessageId}
+                copiedMsgId={copiedMsgId}
+                handleCopyContent={handleCopyContent}
+                preprocessMarkdown={preprocessMarkdown}
+                isSending={isSending}
+                messagesEndRef={messagesEndRef}
+                pendingAttachments={pendingAttachments}
+                setPendingAttachments={setPendingAttachments}
+                showSkillsDropdown={showSkillsDropdown}
+                setShowSkillsDropdown={setShowSkillsDropdown}
+                filteredSkillsForDropdown={filteredSkillsForDropdown}
+                selectedDropdownIndex={selectedDropdownIndex}
+                setSelectedDropdownIndex={setSelectedDropdownIndex}
+                selectSkillForInput={selectSkillForInput}
+                inputMessage={inputMessage}
+                setSearchSkillText={setSearchSkillText}
+                handleSendMessage={handleSendMessage}
+                fileInputRef={fileInputRef}
+                imageInputRef={imageInputRef}
+                processFiles={processFiles}
+                selectedModelId={selectedModelId}
+                setSelectedModelId={setSelectedModelId}
+                modelConfigs={modelConfigs}
+              />
             )}
 
             {/* ========================================================
                 2. SKILLS VIEW
                 ======================================================== */}
             {activeTab === "skills" && (
-              <motion.div 
-                key="skills-view"
-                initial={{ opacity: 0, y: 5 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -5 }}
-                transition={{ duration: 0.15 }}
-                className="p-6 overflow-y-auto h-full"
-              >
-                <div className="max-w-5xl mx-auto space-y-6">
-                  
-                  {/* Page Header banner */}
-                  <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 border-b border-slate-100 pb-5">
-                    <div>
-                      <h2 className="text-xl font-display font-semibold text-slate-900 flex items-center gap-2">
-                        <Wrench className="w-5 h-5 text-indigo-500 shrink-0" />
-                        <span>办公技能包管理中心</span>
-                      </h2>
-                      {showTips && (
-                        <p className="text-xs text-slate-500 mt-1 animate-fade-in">
-                          启用、禁用或调试大模型的自动化工具库。支持直接上传打包好的 `.zip` 或 `.json` 自定义技能模板。
-                        </p>
-                      )}
-                    </div>
-
-                    <div className="flex items-center gap-2.5 shrink-0 self-end sm:self-auto">
-                      <button
-                        onClick={toggleShowTips}
-                        className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-xs font-medium transition-all cursor-pointer ${
-                          showTips 
-                            ? "bg-indigo-50 border-indigo-200 text-indigo-700 hover:bg-indigo-100" 
-                            : "bg-white border-slate-200 text-slate-600 hover:bg-slate-50"
-                        }`}
-                      >
-                        <Info className="w-3.5 h-3.5" />
-                        <span>{showTips ? "隐藏说明" : "显示说明"}</span>
-                      </button>
-
-                      <button 
-                        onClick={() => setShowUploadSkillModal(true)}
-                        className="flex items-center gap-2 px-3 py-2 bg-slate-900 hover:bg-slate-800 text-white text-xs font-medium rounded-lg shadow-sm transition-colors cursor-pointer"
-                      >
-                        <Upload className="w-3.5 h-3.5" />
-                        <span>上传自定义技能包</span>
-                      </button>
-                    </div>
-                  </div>
-
-                  {/* Skills Grid */}
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-                    {skills.map((skill) => (
-                      <div 
-                        key={skill.id}
-                        className={`bg-white border rounded-xl p-5 shadow-2xs relative flex flex-col justify-between transition-all ${
-                          skill.enabled 
-                            ? "border-slate-200" 
-                            : "border-slate-100 opacity-75"
-                        }`}
-                      >
-                        <div>
-                          <div className="flex items-center justify-between mb-3">
-                            <h3 className="font-display font-semibold text-sm text-slate-800">{skill.name}</h3>
-                            <div className="flex items-center gap-2">
-                              {renderCategoryTag(skill.category)}
-                              
-                              {/* Toggle switch */}
-                              <button 
-                                onClick={() => handleToggleSkill(skill.id)}
-                                className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-hidden ${
-                                  skill.enabled ? "bg-slate-900" : "bg-slate-200"
-                                }`}
-                              >
-                                <span className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow-sm ring-0 transition duration-200 ease-in-out ${
-                                  skill.enabled ? "translate-x-4" : "translate-x-0"
-                                }`} />
-                              </button>
-                            </div>
-                          </div>
-
-                          <p className="text-xs text-slate-500 leading-normal mb-2">
-                            {skill.description}
-                          </p>
-                        </div>
-
-                        {/* Custom skill trash option */}
-                        {skill.isCustom && (
-                          <div className="mt-3 text-right">
-                            <button 
-                              onClick={() => setSkills(prev => prev.filter(s => s.id !== skill.id))}
-                              className="text-[10px] text-red-500 hover:underline inline-flex items-center gap-1"
-                            >
-                              <Trash2 className="w-3 h-3" />
-                              <span>卸载此自定义技能</span>
-                            </button>
-                          </div>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-
-                  {/* Skills hint */}
-                  {showTips && (
-                    <div className="p-4 bg-slate-50/60 rounded-xl border border-slate-100 text-xs text-slate-500 flex gap-3.5 animate-fade-in">
-                      <HelpCircle className="w-5 h-5 text-slate-400 shrink-0 mt-0.5" />
-                      <div>
-                        <h4 className="font-semibold text-slate-700 mb-0.5">如何使技能在会话中生效？</h4>
-                        <p className="leading-relaxed">
-                          当您在 **智能对话** 中下达指令时，AI 会自动读取当前状态为“已开启”的技能描述。如果您的指令属于该技能处理的范畴（例如周报整理或文档阅读），AI 将在后台调用底层规则引擎，自动为您注入定制的参数。
-                        </p>
-                      </div>
-                    </div>
-                  )}
-
-                </div>
-              </motion.div>
+              <SkillsView 
+                showTips={showTips}
+                toggleShowTips={toggleShowTips}
+                setShowUploadSkillModal={setShowUploadSkillModal}
+                skills={skills}
+                handleToggleSkill={handleToggleSkill}
+                setSkills={setSkills}
+              />
             )}
 
             {/* ========================================================
                 3. MEMORY & PROFILING VIEW
                 ======================================================== */}
             {activeTab === "memory" && (
-              <motion.div 
-                key="memory-view"
-                initial={{ opacity: 0, y: 5 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -5 }}
-                transition={{ duration: 0.15 }}
-                className="p-6 overflow-y-auto h-full"
-              >
-                <div className="max-w-5xl mx-auto space-y-6">
-                  
-                  {/* Page header banner */}
-                  <div className="border-b border-slate-100 pb-5">
-                    <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4">
-                      <div>
-                        <h2 className="text-xl font-display font-semibold text-slate-900 flex items-center gap-2">
-                          <Brain className="w-5 h-5 text-indigo-500 shrink-0" />
-                          <span>记忆与认知画像</span>
-                        </h2>
-                        {showTips && (
-                          <p className="text-xs text-slate-500 mt-1 animate-fade-in">
-                            查看并管理大模型对您的偏好认知事实（Persona & Memories）。这些设定会被永久编码到 AI 的系统指令里，从而让其提供越用越懂您的极致服务。
-                          </p>
-                        )}
-                      </div>
-                      
-                      <div className="flex flex-wrap items-center gap-3 shrink-0">
-                        <button
-                          onClick={toggleShowTips}
-                          className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-xs font-medium transition-all cursor-pointer ${
-                            showTips 
-                              ? "bg-indigo-50 border-indigo-200 text-indigo-700 hover:bg-indigo-100" 
-                              : "bg-white border-slate-200 text-slate-600 hover:bg-slate-50"
-                          }`}
-                        >
-                          <Info className="w-3.5 h-3.5" />
-                          <span>{showTips ? "隐藏说明" : "显示说明"}</span>
-                        </button>
-                        {/* Memory Load Switch */}
-                        <div className="flex items-center gap-2.5 bg-white border border-slate-200 px-3.5 py-2 rounded-xl shadow-2xs">
-                          <div className="text-right">
-                            <span className="block text-xs font-semibold text-slate-800">大模型加载记忆</span>
-                            <span className={`text-[9px] block ${isMemoryEnabled ? "text-emerald-600 font-semibold" : "text-slate-400"}`}>
-                              {isMemoryEnabled ? "已启用加载" : "已暂停加载"}
-                            </span>
-                          </div>
-                          <button
-                            type="button"
-                            onClick={() => setIsMemoryEnabled(!isMemoryEnabled)}
-                            className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-hidden ${
-                              isMemoryEnabled ? "bg-emerald-500" : "bg-slate-200"
-                            }`}
-                          >
-                            <span
-                              className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-sm ring-0 transition duration-200 ease-in-out ${
-                                isMemoryEnabled ? "translate-x-5" : "translate-x-0"
-                              }`}
-                            />
-                          </button>
-                        </div>
-
-                        {/* Dynamic intelligence progress bar */}
-                        <div className="bg-white border border-slate-150 p-2.5 rounded-xl flex items-center gap-3 shadow-2xs">
-                          <div className={`w-10 h-10 rounded-full border-2 flex items-center justify-center text-xs font-bold bg-emerald-50/50 transition-colors ${
-                            isMemoryEnabled ? "border-emerald-500 text-emerald-600" : "border-slate-300 text-slate-400 bg-slate-50/50"
-                          }`}>
-                            {isMemoryEnabled ? "85%" : "0%"}
-                          </div>
-                          <div>
-                            <h4 className={`text-xs font-semibold leading-tight transition-colors ${isMemoryEnabled ? "text-slate-800" : "text-slate-400"}`}>认知匹配度</h4>
-                            <p className="text-[10px] text-slate-400 leading-tight">
-                              {isMemoryEnabled ? `已记录 ${memories.length} 条核心偏好事实` : "AI 账本加载已禁用"}
-                            </p>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Warning banner when memory is disabled */}
-                  {!isMemoryEnabled && (
-                    <motion.div 
-                      initial={{ opacity: 0, y: -10 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      className="bg-amber-50/80 border border-amber-200 rounded-xl p-4 flex items-start gap-3 shadow-2xs"
-                    >
-                      <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
-                      <div>
-                        <h4 className="text-xs font-semibold text-amber-800">AI 记忆与画像处于关闭状态</h4>
-                        <p className="text-[11px] text-amber-700 mt-1 leading-relaxed">
-                          当前已手动关闭大模型记忆加载。与 AI 会话时，系统<strong>不会</strong>将您的“用户基础画像”以及“事实习惯条目”注入到 AI 的系统指令中，智能体将退回至通用默认状态，从而不加载任何您的专属偏好。
-                        </p>
-                      </div>
-                    </motion.div>
-                  )}
-
-                  <div className={`grid grid-cols-1 lg:grid-cols-12 gap-6 transition-all duration-300 ${!isMemoryEnabled ? "opacity-60 saturate-50" : "opacity-100"}`}>
-                    
-                    {/* Column 1: Profile form config (5 cols) */}
-                    <div className="lg:col-span-5 bg-white border border-slate-200 rounded-xl p-5 shadow-2xs self-start">
-                      <div className="flex items-center gap-2 mb-4 border-b border-slate-50 pb-3">
-                        <User className="w-4 h-4 text-slate-400" />
-                        <h3 className="font-display font-semibold text-sm text-slate-800">用户基础画像配置</h3>
-                      </div>
-
-                      <div className="space-y-4 text-xs">
-                        <div>
-                          <label className="block text-[11px] font-medium text-slate-500 mb-1">姓名 / 呼称</label>
-                          <input 
-                            type="text" 
-                            value={userProfile.name}
-                            onChange={(e) => setUserProfile({ ...userProfile, name: e.target.value })}
-                            className="w-full border border-slate-200 rounded-lg px-3 py-2 text-slate-700 bg-slate-50/30 focus:bg-white focus:outline-hidden"
-                          />
-                        </div>
-
-                        <div>
-                          <label className="block text-[11px] font-medium text-slate-500 mb-1">职级 / 核心角色</label>
-                          <input 
-                            type="text" 
-                            value={userProfile.role}
-                            onChange={(e) => setUserProfile({ ...userProfile, role: e.target.value })}
-                            className="w-full border border-slate-200 rounded-lg px-3 py-2 text-slate-700 bg-slate-50/30 focus:bg-white focus:outline-hidden"
-                          />
-                        </div>
-
-                        <div>
-                          <label className="block text-[11px] font-medium text-slate-500 mb-1">归属部门 / 业务线</label>
-                          <input 
-                            type="text" 
-                            value={userProfile.department}
-                            onChange={(e) => setUserProfile({ ...userProfile, department: e.target.value })}
-                            className="w-full border border-slate-200 rounded-lg px-3 py-2 text-slate-700 bg-slate-50/30 focus:bg-white focus:outline-hidden"
-                          />
-                        </div>
-
-                        <div>
-                          <label className="block text-[11px] font-medium text-slate-500 mb-1">文本输出偏好语气</label>
-                          <select 
-                            value={userProfile.tonePreference}
-                            onChange={(e) => setUserProfile({ ...userProfile, tonePreference: e.target.value as any })}
-                            className="w-full border border-slate-200 rounded-lg px-3 py-2 text-slate-700 bg-slate-50/30 focus:bg-white focus:outline-hidden cursor-pointer"
-                          >
-                            <option value="professional">专业严谨 (Corporate Standard)</option>
-                            <option value="friendly">热情温和 (Collaborative & Warm)</option>
-                            <option value="concise">极其精炼 (Concise & Bullet points)</option>
-                            <option value="detailed">极尽详实 (Exhaustive Analysis)</option>
-                          </select>
-                        </div>
-
-                        <div>
-                          <label className="block text-[11px] font-medium text-slate-500 mb-1">默认排版格式</label>
-                          <select 
-                            value={userProfile.formatPreference}
-                            onChange={(e) => setUserProfile({ ...userProfile, formatPreference: e.target.value as any })}
-                            className="w-full border border-slate-200 rounded-lg px-3 py-2 text-slate-700 bg-slate-50/30 focus:bg-white focus:outline-hidden cursor-pointer"
-                          >
-                            <option value="markdown">标准多级标题 Markdown 格式</option>
-                            <option value="bullet">扁平化项目符号列表 (Bullet points)</option>
-                            <option value="plain">纯文本流式段落 (Plain paragraphs)</option>
-                          </select>
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Column 2: Cognitive facts checklist (7 cols) */}
-                    <div className="lg:col-span-7 bg-white border border-slate-200 rounded-xl p-5 shadow-2xs">
-                      
-                      {/* Section Title */}
-                      <div className="flex items-center justify-between mb-4 border-b border-slate-50 pb-3">
-                        <h3 className="font-display font-semibold text-sm text-slate-800">AI 学习记住的事实习惯</h3>
-                        <span className="text-[10px] text-slate-400 font-mono">COUNT: {memories.length}</span>
-                      </div>
-
-                      {/* Add memory form inline */}
-                      <form onSubmit={handleAddMemory} className="flex gap-2.5 mb-5">
-                        <div className="flex-1 relative">
-                          <input 
-                            type="text"
-                            placeholder="手动向 AI 账本注入新的偏好或偏好事实（例: “用户出差目的地偏向上海”）"
-                            value={newMemoryContent}
-                            onChange={(e) => setNewMemoryContent(e.target.value)}
-                            className="w-full border border-slate-200 text-xs rounded-lg pl-3 pr-20 py-2 text-slate-700 bg-slate-50/50 focus:bg-white focus:outline-hidden"
-                          />
-                          <select 
-                            value={newMemoryCategory}
-                            onChange={(e) => setNewMemoryCategory(e.target.value as any)}
-                            className="absolute right-1.5 top-1.5 bg-slate-200 text-slate-600 rounded text-[9px] px-1 py-0.5 border-none cursor-pointer focus:outline-hidden"
-                          >
-                            <option value="preference">习惯偏好</option>
-                            <option value="profile">工作背景</option>
-                            <option value="schedule">流程排期</option>
-                            <option value="system">集成环境</option>
-                          </select>
-                        </div>
-                        <button 
-                          type="submit"
-                          className="px-3.5 py-1.5 bg-slate-900 text-white text-xs rounded-lg font-medium hover:bg-slate-850 transition-colors"
-                        >
-                          添加认知条目
-                        </button>
-                      </form>
-
-                      {/* Memories List */}
-                      <div className="space-y-3.5 max-h-[360px] overflow-y-auto pr-1">
-                        {memories.length === 0 ? (
-                          <div className="text-center py-12 text-slate-400 text-xs">
-                            暂无记忆条目。您可以在上方手动键入添加，或者在与 AI 的多轮会话中，由其自动归纳习得。
-                          </div>
-                        ) : (
-                          memories.map((m) => (
-                            <div 
-                              key={m.id}
-                              className="group flex items-start justify-between p-3 rounded-lg bg-slate-50 hover:bg-slate-100/50 border border-slate-100 transition-all text-xs"
-                            >
-                              <div className="flex items-start gap-3 flex-1">
-                                <div className="flex flex-wrap items-center gap-1.5 shrink-0 mt-0.5">
-                                  <span className={`px-1.5 py-0.5 text-[9px] font-semibold font-mono rounded shrink-0 ${
-                                    m.category === "preference" ? "bg-amber-100 text-amber-800" :
-                                    m.category === "profile" ? "bg-indigo-100 text-indigo-800" :
-                                    m.category === "schedule" ? "bg-emerald-100 text-emerald-800" :
-                                    "bg-slate-200 text-slate-800"
-                                  }`}>
-                                    {m.category === "preference" && "个人偏好"}
-                                    {m.category === "profile" && "工作背景"}
-                                    {m.category === "schedule" && "工作时间"}
-                                    {m.category === "system" && "环境设置"}
-                                  </span>
-                                  <span className="px-1.5 py-0.5 text-[9px] font-medium font-mono rounded bg-slate-100 text-slate-500 border border-slate-200 shrink-0">
-                                    置信度: {m.confidence || 95}%
-                                  </span>
-                                </div>
-                                <p className="text-slate-700 leading-relaxed font-sans">{m.content}</p>
-                              </div>
-
-                              <div className="flex items-center gap-2 shrink-0 ml-4">
-                                <span className="text-[9px] text-slate-400 font-mono whitespace-nowrap">
-                                  {m.createdAt}
-                                </span>
-                                <button 
-                                  onClick={() => handleDeleteMemory(m.id)}
-                                  className="p-1 hover:bg-slate-200 rounded text-slate-400 hover:text-red-500 transition-colors"
-                                >
-                                  <X className="w-3.5 h-3.5" />
-                                </button>
-                              </div>
-                            </div>
-                          ))
-                        )}
-                      </div>
-
-                    </div>
-                  </div>
-
-                </div>
-              </motion.div>
+              <MemoryView 
+                showTips={showTips}
+                toggleShowTips={toggleShowTips}
+                isMemoryEnabled={isMemoryEnabled}
+                setIsMemoryEnabled={setIsMemoryEnabled}
+                userProfile={userProfile}
+                setUserProfile={setUserProfile}
+                memories={memories}
+                isLoggedIn={isLoggedIn}
+                handleLogout={handleLogout}
+                setShowLoginModal={setShowLoginModal}
+                newMemoryContent={newMemoryContent}
+                setNewMemoryContent={setNewMemoryContent}
+                newMemoryCategory={newMemoryCategory}
+                setNewMemoryCategory={setNewMemoryCategory}
+                handleAddMemory={handleAddMemory}
+                handleDeleteMemory={handleDeleteMemory}
+              />
             )}
 
-            {/* ========================================================
-                3.1. SCHEDULE & CRON PLANNER VIEW (NEW MAJOR MODULE)
-                ======================================================== */}
             {activeTab === "scheduler" && (
-              <motion.div 
-                key="scheduler-view"
-                initial={{ opacity: 0, y: 5 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -5 }}
-                transition={{ duration: 0.15 }}
-                className="p-6 overflow-hidden h-full flex flex-col"
-              >
-                <div className="max-w-7xl mx-auto w-full flex flex-col h-full space-y-4 overflow-hidden">
-                  
-                  {/* Header banner */}
-                  <div className="border-b border-slate-100 pb-3.5 shrink-0 flex justify-between items-center">
-                    <div>
-                      <h2 className="text-lg font-display font-semibold text-slate-900 flex items-center gap-2">
-                        <Calendar className="w-5 h-5 text-indigo-500 shrink-0" />
-                        <span>智能日程与计划任务</span>
-                        <span className="text-[10px] bg-indigo-50 text-indigo-700 px-2 py-0.5 rounded font-mono border border-indigo-100/50">Enterprise Scheduler v2.1</span>
-                      </h2>
-                      {showTips && (
-                        <p className="text-xs text-slate-500 mt-0.5 animate-fade-in">
-                          通过与专属 Agent 规划助理对话或手动配置，让 AI 定期自动运行复杂提示词指令，拉取多端 MCP 服务器工具并生成高品质报告。
-                        </p>
-                      )}
-                    </div>
-
-                    <div className="flex items-center gap-2.5 shrink-0">
-                      <button
-                        onClick={toggleShowTips}
-                        className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-xs font-medium transition-all cursor-pointer ${
-                          showTips 
-                            ? "bg-indigo-50 border-indigo-200 text-indigo-700 hover:bg-indigo-100" 
-                            : "bg-white border-slate-200 text-slate-600 hover:bg-slate-50"
-                        }`}
-                      >
-                        <Info className="w-3.5 h-3.5" />
-                        <span>{showTips ? "隐藏说明" : "显示说明"}</span>
-                      </button>
-
-                      <button
-                        onClick={() => {
-                          setEditingTask({
-                            id: "task_manual_" + Date.now(),
-                            title: "未命名自定义定时任务",
-                            scheduleType: "daily",
-                            timeValue: "09:00",
-                            prompt: "拉取最新的已关联数据，并总结今日核心改进建议。",
-                            displayFormat: "markdown",
-                            enabled: true,
-                            createdAt: new Date().toISOString().replace('T', ' ').substring(0, 16),
-                            runCount: 0
-                          });
-                          setIsEditingTaskOpen(true);
-                        }}
-                        className="px-3.5 py-1.5 text-xs font-semibold bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg transition-all shadow-2xs flex items-center gap-1.5 cursor-pointer"
-                      >
-                        <Plus className="w-3.5 h-3.5" /> <span>手动创建任务</span>
-                      </button>
-                    </div>
-                  </div>
-
-                  {/* Single Full-width Panel: Scheduled Tasks List */}
-                  <div className="flex-1 flex flex-col min-h-0 overflow-hidden mt-2">
-                    <div className="mb-3.5 shrink-0 flex items-center justify-between">
-                      <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">计划任务列表 ({scheduleTasks.length})</span>
-                      <span className="text-[10px] text-slate-400 font-mono">定时调度线程就绪 ●</span>
-                    </div>
-
-                    {scheduleTasks.length > 0 && (
-                      <div className="mb-3 bg-slate-50/70 border border-slate-150 rounded-xl p-2 px-3 flex flex-wrap items-center justify-between gap-2.5 shadow-3xs animate-fade-in text-xs">
-                        <div className="flex items-center gap-2">
-                          <input 
-                            type="checkbox"
-                            checked={scheduleTasks.length > 0 && selectedTaskIds.length === scheduleTasks.length}
-                            onChange={handleSelectAllTasks}
-                            className="w-3.5 h-3.5 accent-indigo-600 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
-                            id="batch-select-all"
-                          />
-                          <label htmlFor="batch-select-all" className="font-medium text-slate-600 select-none cursor-pointer">
-                            全选
-                          </label>
-                          {selectedTaskIds.length > 0 && (
-                            <span className="px-2 py-0.5 text-[10px] font-bold bg-indigo-100 text-indigo-700 rounded-full font-mono">
-                              已选 {selectedTaskIds.length} 项
-                            </span>
-                          )}
-                        </div>
-                        
-                        <div className="flex items-center gap-2">
-                          <button
-                            type="button"
-                            onClick={handleBatchEnableTasks}
-                            disabled={selectedTaskIds.length === 0}
-                            className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-semibold transition-all ${
-                              selectedTaskIds.length > 0 
-                                ? "bg-white hover:bg-emerald-50 text-emerald-600 border border-emerald-200/50 hover:border-emerald-300 shadow-3xs" 
-                                : "text-slate-400 bg-slate-100/50 border border-transparent cursor-not-allowed"
-                            }`}
-                          >
-                            <Play className="w-3 h-3" />
-                            <span>批量激活</span>
-                          </button>
-                          
-                          <button
-                            type="button"
-                            onClick={handleBatchPauseTasks}
-                            disabled={selectedTaskIds.length === 0}
-                            className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-semibold transition-all ${
-                              selectedTaskIds.length > 0 
-                                ? "bg-white hover:bg-amber-50 text-amber-600 border border-amber-200/50 hover:border-amber-300 shadow-3xs" 
-                                : "text-slate-400 bg-slate-100/50 border border-transparent cursor-not-allowed"
-                            }`}
-                          >
-                            <Pause className="w-3 h-3" />
-                            <span>批量暂停</span>
-                          </button>
-                          
-                          <button
-                            type="button"
-                            onClick={handleBatchDeleteTasks}
-                            disabled={selectedTaskIds.length === 0}
-                            className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-semibold transition-all ${
-                              selectedTaskIds.length > 0 
-                                ? "bg-red-50 hover:bg-red-100 text-red-600 border border-red-100/50 hover:border-red-200 shadow-3xs" 
-                                : "text-slate-400 bg-slate-100/50 border border-transparent cursor-not-allowed"
-                            }`}
-                          >
-                            <Trash2 className="w-3 h-3" />
-                            <span>批量删除</span>
-                          </button>
-                        </div>
-                      </div>
-                    )}
-
-                    <div className="flex-1 overflow-y-auto pr-1.5 pb-6">
-                      {scheduleTasks.length === 0 ? (
-                        <div className="bg-white border border-dashed border-slate-200 rounded-xl p-10 text-center space-y-3">
-                          <div className="w-12 h-12 rounded-full bg-slate-50 border border-slate-100 flex items-center justify-center text-slate-400 mx-auto">
-                            <Calendar className="w-6 h-6" />
-                          </div>
-                          <div>
-                            <h4 className="text-sm font-semibold text-slate-700">暂无任何计划任务</h4>
-                            <p className="text-xs text-slate-400 mt-1 max-w-sm mx-auto">
-                              点击右上角 “手动创建任务” 即可将复杂工作流绑定为定期自动执行的计划。
-                            </p>
-                          </div>
-                        </div>
-                      ) : (
-                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                          {scheduleTasks.map((task) => (
-                            <div 
-                              key={task.id}
-                              onClick={() => setViewingTask(task)}
-                              className={`bg-white border rounded-xl p-4 transition-all duration-200 hover:border-indigo-300 hover:shadow-xs cursor-pointer relative group flex flex-col justify-between ${
-                                selectedTaskIds.includes(task.id)
-                                  ? "border-indigo-400 bg-indigo-50/10 shadow-xs"
-                                  : task.enabled ? "border-slate-200 shadow-3xs" : "border-slate-150 bg-slate-50/30 opacity-75"
-                              }`}
-                            >
-                              <div className="flex flex-col space-y-3">
-                                {/* Header: Title & Switch */}
-                                <div className="flex justify-between items-start gap-3">
-                                  <div className="flex items-start gap-2.5 min-w-0">
-                                    <div onClick={(e) => e.stopPropagation()} className="flex items-center shrink-0 mt-0.5">
-                                      <input 
-                                        type="checkbox"
-                                        checked={selectedTaskIds.includes(task.id)}
-                                        onChange={() => handleToggleSelectTask(task.id)}
-                                        className="w-3.5 h-3.5 accent-indigo-600 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
-                                      />
-                                    </div>
-                                    <h3 className="font-semibold text-slate-800 text-xs truncate max-w-[150px] group-hover:text-indigo-600 transition-colors flex items-center gap-1" title={task.title}>
-                                      <Pin className="w-3 h-3 text-slate-400 shrink-0" />
-                                      <span>{task.title}</span>
-                                    </h3>
-                                  </div>
-                                  
-                                  {/* Toggle Switch */}
-                                  <div className="flex items-center gap-1.5 shrink-0" onClick={(e) => e.stopPropagation()}>
-                                    <span className={`text-[9px] font-medium font-mono ${task.enabled ? "text-emerald-600" : "text-slate-400"}`}>
-                                      {task.enabled ? "已激活" : "暂停"}
-                                    </span>
-                                    <button 
-                                      onClick={() => handleToggleTask(task.id)}
-                                      className={`relative inline-flex h-4 w-7 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
-                                        task.enabled ? "bg-slate-900" : "bg-slate-200"
-                                      }`}
-                                    >
-                                      <span
-                                        className={`pointer-events-none inline-block h-3 w-3 transform rounded-full bg-white shadow-xs ring-0 transition duration-200 ease-in-out ${
-                                          task.enabled ? "translate-x-3" : "translate-x-0"
-                                        }`}
-                                      />
-                                    </button>
-                                  </div>
-                                </div>
-
-                                {/* Meta details row: Badges and Schedule time */}
-                                <div className="flex items-center gap-2 flex-wrap">
-                                  <span className={`text-[9px] font-mono font-bold px-1.5 py-0.5 rounded shrink-0 ${
-                                    task.displayFormat === 'table' ? 'bg-amber-50 text-amber-700 border border-amber-100/50' :
-                                    task.displayFormat === 'email' ? 'bg-indigo-50 text-indigo-700 border border-indigo-100/50' :
-                                    task.displayFormat === 'bullet' ? 'bg-teal-50 text-teal-700 border border-teal-100/50' :
-                                    'bg-slate-50 text-slate-600 border border-slate-200/50'
-                                  }`}>
-                                    {task.displayFormat.toUpperCase()}
-                                  </span>
-
-                                  <span className={`text-[9px] font-mono font-bold px-1.5 py-0.5 rounded shrink-0 ${
-                                    task.scheduleType === 'daily' ? 'bg-sky-50 text-sky-700' :
-                                    task.scheduleType === 'weekly' ? 'bg-indigo-50 text-indigo-700' :
-                                    task.scheduleType === 'monthly' ? 'bg-purple-50 text-purple-700' :
-                                    'bg-slate-100 text-slate-600'
-                                  }`}>
-                                    {task.scheduleType === 'daily' ? '每天' : task.scheduleType === 'weekly' ? '每周' : task.scheduleType === 'monthly' ? '每月' : '单次'}
-                                  </span>
-
-                                  <span className="flex items-center gap-0.5 text-indigo-600 font-medium font-mono text-[10px]">
-                                    <Clock className="w-3 h-3 text-indigo-500" />
-                                    {task.timeValue}
-                                  </span>
-                                </div>
-
-                                {/* Bottom meta details: Click hints and execution info */}
-                                <div className="flex items-center justify-between pt-2.5 border-t border-slate-50 text-[10px] text-slate-400 font-mono mt-2">
-                                  <div className="flex items-center gap-2">
-                                    <span>已运行: <strong className="text-slate-600 font-semibold">{task.runCount}次</strong></span>
-                                    {task.lastRunTime && (
-                                      <span className="opacity-75">| 上次: {task.lastRunTime.split(' ')[1] || task.lastRunTime}</span>
-                                    )}
-                                  </div>
-                                  <span className="text-indigo-500 opacity-0 group-hover:opacity-100 transition-opacity font-semibold flex items-center gap-0.5">
-                                    <span>查看</span>
-                                    <ChevronRight className="w-3 h-3" />
-                                  </span>
-                                </div>
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  </div>
-
-                </div>
-              </motion.div>
+              <SchedulerView 
+                showTips={showTips}
+                toggleShowTips={toggleShowTips}
+                setEditingTask={setEditingTask}
+                setIsEditingTaskOpen={setIsEditingTaskOpen}
+                scheduleTasks={scheduleTasks}
+                selectedTaskIds={selectedTaskIds}
+                handleSelectAllTasks={handleSelectAllTasks}
+                handleBatchEnableTasks={handleBatchEnableTasks}
+                handleBatchPauseTasks={handleBatchPauseTasks}
+                handleBatchDeleteTasks={handleBatchDeleteTasks}
+                setViewingTask={setViewingTask}
+                handleToggleSelectTask={handleToggleSelectTask}
+                handleToggleTask={handleToggleTask}
+              />
             )}
 
-            {/* ========================================================
-                4. MCP SERVERS VIEW
-                ======================================================== */}
             {activeTab === "mcp" && (
-              <motion.div 
-                key="mcp-view"
-                initial={{ opacity: 0, y: 5 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -5 }}
-                transition={{ duration: 0.15 }}
-                className="p-6 overflow-y-auto h-full"
-              >
-                <div className="max-w-5xl mx-auto space-y-6">
-                  
-                  {/* Page header banner */}
-                  <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 border-b border-slate-100 pb-5">
-                    <div className="min-w-0 flex-1">
-                      <h2 className="text-xl font-display font-semibold text-slate-900 flex items-center gap-2">
-                        <Link className="w-5 h-5 text-indigo-500 shrink-0" />
-                        <span>MCP 协议服务器连通面板</span>
-                      </h2>
-                      {showTips && (
-                        <p className="text-xs text-slate-500 mt-1 leading-relaxed animate-fade-in">
-                          通过 Model Context Protocol (MCP) 让 AI 穿透沙箱，安全调用本地或第三方应用数据与系统接口，实现强大的真自动化办公。
-                        </p>
-                      )}
-                    </div>
-
-                    <div className="flex items-center gap-2.5 shrink-0">
-                      <button
-                        onClick={toggleShowTips}
-                        className={`flex items-center gap-1.5 px-2.5 py-2 rounded-lg border text-xs font-medium transition-all cursor-pointer ${
-                          showTips 
-                            ? "bg-indigo-50 border-indigo-200 text-indigo-700 hover:bg-indigo-100" 
-                            : "bg-white border-slate-200 text-slate-600 hover:bg-slate-50"
-                        }`}
-                      >
-                        <Info className="w-3.5 h-3.5" />
-                        <span>{showTips ? "隐藏说明" : "显示说明"}</span>
-                      </button>
-
-                      <button 
-                        onClick={() => setShowAddServerModal(true)}
-                        className="flex items-center gap-2 px-3.5 py-2 bg-slate-900 hover:bg-slate-800 text-white text-xs font-medium rounded-lg shadow-sm transition-colors shrink-0 whitespace-nowrap cursor-pointer"
-                      >
-                        <Plus className="w-3.5 h-3.5" />
-                        <span>添加 MCP 服务器</span>
-                      </button>
-                    </div>
-                  </div>
-
-
-
-                  {/* Server Row List */}
-                  <div className="bg-white border border-slate-200 rounded-xl divide-y divide-slate-100 overflow-visible shadow-2xs">
-                    {mcpServers.length === 0 ? (
-                      <div className="text-center py-12 text-slate-400 text-xs">
-                        目前未注册任何 MCP 协议服务，请点击右上方按钮导入。
-                      </div>
-                    ) : (
-                      mcpServers.map((server) => {
-                        const isConnected = server.status === "connected";
-                        const isConnecting = server.status === "connecting";
-                        
-                        return (
-                          <div 
-                            key={server.id}
-                            className="flex flex-col p-4 gap-3.5 hover:bg-slate-50/50 transition-colors first:rounded-t-xl last:rounded-b-xl"
-                          >
-                            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-                              {/* Name & Connection Point */}
-                              <div className="flex-1 min-w-0">
-                                <div className="flex items-center gap-2 flex-wrap">
-                                  <h3 className="font-display font-semibold text-xs text-slate-900 truncate">{server.name}</h3>
-                                  <span className="px-1.5 py-0.2 text-[9px] font-mono rounded bg-slate-100 text-slate-600 border border-slate-150 uppercase shrink-0 whitespace-nowrap">
-                                    {server.type}
-                                  </span>
-                                </div>
-                                <p className="text-[10px] font-mono text-slate-400 mt-1 truncate" title={server.urlOrCommand}>
-                                  {server.urlOrCommand}
-                                </p>
-                              </div>
-
-                              {/* Controls: Switch, Status, Show Tools, Test Button, Delete Button */}
-                              <div className="flex items-center gap-3 shrink-0 justify-between md:justify-end flex-wrap sm:flex-nowrap">
-                                {/* Switch & Status */}
-                                <div className="flex items-center gap-3 bg-slate-100/60 rounded-lg p-1 px-2 border border-slate-100 shrink-0 whitespace-nowrap">
-                                  {/* Status indicator */}
-                                  <div className="flex items-center gap-1.5 text-[10px]">
-                                    <span className={`w-2.5 h-2.5 rounded-full shrink-0 ${
-                                      isConnected ? "bg-emerald-500 animate-pulse" :
-                                      isConnecting ? "bg-amber-500 animate-spin" :
-                                      "bg-slate-300"
-                                    }`}></span>
-                                    <span className="font-medium text-slate-600 whitespace-nowrap">
-                                      {isConnected ? "已联通" : isConnecting ? "正在连接" : "离线"}
-                                    </span>
-                                  </div>
-
-                                  {/* Separator line */}
-                                  <span className="h-3 w-px bg-slate-200 shrink-0"></span>
-
-                                  {/* Manual state toggle */}
-                                  <button 
-                                    onClick={() => handleToggleMcpStatus(server.id)}
-                                    title={isConnected ? "关闭连接" : "开启连接"}
-                                    className="relative inline-flex h-4 w-7 shrink-0 cursor-pointer rounded-full border border-transparent transition-colors duration-200 ease-in-out focus:outline-hidden bg-slate-200"
-                                    style={{ backgroundColor: isConnected ? "#0f172a" : "#e2e8f0" }}
-                                  >
-                                    <span className={`pointer-events-none inline-block h-3 w-3 transform rounded-full bg-white shadow-sm ring-0 transition duration-200 ease-in-out ${
-                                      isConnected ? "translate-x-3" : "translate-x-0"
-                                    }`} />
-                                  </button>
-                                </div>
-
-                                {/* Show Tools Button */}
-                                <button 
-                                  onClick={() => {
-                                    setExpandedMcpServers(prev => ({
-                                      ...prev,
-                                      [server.id]: !prev[server.id]
-                                    }));
-                                  }}
-                                  className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded border text-[10px] font-medium transition-colors shrink-0 whitespace-nowrap ${
-                                    expandedMcpServers[server.id]
-                                      ? "bg-slate-900 text-white border-slate-900 hover:bg-slate-800 shadow-3xs"
-                                      : "bg-white hover:bg-slate-50 text-slate-700 border-slate-200"
-                                  }`}
-                                >
-                                  <Eye className="w-3 h-3 shrink-0" />
-                                  <span>{expandedMcpServers[server.id] ? "隐藏工具" : "展示工具"}</span>
-                                </button>
-
-                                {/* Test Connectivity */}
-                                <button 
-                                  onClick={() => handleTestMcpServer(server.id, server.name)}
-                                  disabled={isConnecting}
-                                  className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded border text-[10px] font-medium transition-colors shrink-0 whitespace-nowrap ${
-                                    isConnected 
-                                      ? "bg-white hover:bg-slate-50 text-slate-700 border-slate-200" 
-                                      : "bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border-indigo-150"
-                                  }`}
-                                >
-                                  <RefreshCw className={`w-3 h-3 shrink-0 ${isConnecting ? 'animate-spin' : ''}`} />
-                                  <span>{isConnected ? "测试联通" : "连通测试"}</span>
-                                </button>
-
-                                {/* Delete Button */}
-                                <button 
-                                  onClick={() => handleDeleteMcpServer(server.id)}
-                                  title="注销此服务器"
-                                  className="p-1.5 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors shrink-0"
-                                >
-                                  <Trash2 className="w-3.5 h-3.5 shrink-0" />
-                                </button>
-                              </div>
-                            </div>
-
-                            {/* Collapsible Tools List Section */}
-                            {expandedMcpServers[server.id] && (
-                              <motion.div 
-                                initial={{ opacity: 0, height: 0 }}
-                                animate={{ opacity: 1, height: "auto" }}
-                                className="mt-2.5 pt-3 border-t border-slate-100 overflow-visible"
-                              >
-                                <div className="text-[10px] font-bold text-slate-400 uppercase mb-2 tracking-wider flex items-center gap-1">
-                                  <Wrench className="w-3 h-3 text-slate-400 shrink-0" />
-                                  <span>注册接口工具集 ({server.tools?.length || 0})</span>
-                                </div>
-                                {(!server.tools || server.tools.length === 0) ? (
-                                  <p className="text-[10px] text-slate-400 italic">暂无可用工具列表</p>
-                                ) : (
-                                  <div className="flex flex-wrap gap-1.5 overflow-visible py-1">
-                                    {server.tools.map((tool, index) => {
-                                      const isRightSide = index >= Math.ceil(server.tools.length / 2);
-                                      
-                                      // Robust fallback parsing for various JSON schema property structures
-                                      const schema = tool.inputSchema || (tool as any).input_schema || (tool as any).schema || (tool as any).parameters;
-                                      let properties: Record<string, any> | null = null;
-                                      let requiredFields: string[] = [];
-                                      
-                                      if (schema) {
-                                        if (schema.properties && typeof schema.properties === "object") {
-                                          properties = schema.properties;
-                                        } else if (typeof schema === "object" && !Array.isArray(schema)) {
-                                          const schemaKeywords = ["type", "required", "description", "properties", "definitions", "$schema"];
-                                          const keys = Object.keys(schema);
-                                          const hasOnlyKeywords = keys.length > 0 && keys.every(k => schemaKeywords.includes(k));
-                                          if (!hasOnlyKeywords) {
-                                            properties = schema;
-                                          }
-                                        }
-                                        if (Array.isArray(schema.required)) {
-                                          requiredFields = schema.required;
-                                        }
-                                      }
-                                      if (!properties && typeof (tool as any).properties === "object") {
-                                        properties = (tool as any).properties;
-                                      }
-                                      if (requiredFields.length === 0 && Array.isArray((tool as any).required)) {
-                                        requiredFields = (tool as any).required;
-                                      }
-                                      
-                                      const hasParameters = properties && Object.keys(properties).length > 0;
-
-                                      return (
-                                        <div 
-                                          key={tool.name}
-                                          className="group relative inline-flex cursor-help items-center px-2 py-0.5 rounded bg-slate-50 hover:bg-indigo-50 text-[10px] font-mono text-slate-600 hover:text-indigo-700 border border-slate-200/60 hover:border-indigo-200/80 transition-all shadow-3xs"
-                                        >
-                                          <span>{tool.name}</span>
-                                          
-                                          {/* Hover Tooltip - custom designed to be extremely clean and space-saving */}
-                                          <div className={`absolute bottom-full ${isRightSide ? 'right-0' : 'left-0'} mb-2 hidden group-hover:block w-80 p-3.5 bg-slate-900/95 text-white text-[11px] rounded-xl shadow-xl z-50 pointer-events-none text-left leading-relaxed font-sans backdrop-blur-xs border border-white/10`}>
-                                            <div className="font-semibold text-indigo-400 font-mono text-xs border-b border-white/10 pb-1.5 mb-1.5 flex items-center gap-1.5">
-                                              <Wrench className="w-3 h-3 text-indigo-400" />
-                                              <span>{tool.name}</span>
-                                            </div>
-                                            <div className="text-slate-200 text-[10.5px] font-sans leading-normal">
-                                              {tool.description || "无可用详细描述。"}
-                                            </div>
-
-                                            {/* Parameters and description block */}
-                                            {hasParameters && properties && (
-                                              <div className="border-t border-white/10 pt-2.5 mt-2.5">
-                                                <div className="text-[9px] font-bold text-slate-400 uppercase tracking-wider mb-2 flex items-center gap-1">
-                                                  <span>参数详情 / Parameters Schema</span>
-                                                </div>
-                                                <div className="max-h-40 overflow-y-auto pr-0.5 custom-scrollbar">
-                                                  <div className="grid grid-cols-[minmax(65px,_1fr)_48px_2fr] gap-x-2.5 gap-y-1.5 text-[10px] items-start border-t border-white/5 pt-2">
-                                                    {/* Headers */}
-                                                    <div className="text-[9px] font-medium text-slate-500 uppercase font-sans tracking-wide">参数 / Name</div>
-                                                    <div className="text-[9px] font-medium text-slate-500 uppercase font-sans tracking-wide">类型 / Type</div>
-                                                    <div className="text-[9px] font-medium text-slate-500 uppercase font-sans tracking-wide">说明 / Desc</div>
-                                                    
-                                                    {/* Rows */}
-                                                    {Object.entries(properties).map(([propName, propDetails]: [string, any]) => {
-                                                      const isRequired = requiredFields.includes(propName);
-                                                      return (
-                                                        <React.Fragment key={propName}>
-                                                          <div className="font-mono font-medium text-indigo-300 break-all leading-snug">
-                                                            {propName}
-                                                            {isRequired && <span className="text-rose-400 ml-0.5 font-sans" title="必填">*</span>}
-                                                          </div>
-                                                          <div className="font-mono text-[9px] text-slate-400 break-all leading-snug pt-0.5">
-                                                            {(propDetails && typeof propDetails === "object" ? propDetails.type : typeof propDetails) || "any"}
-                                                          </div>
-                                                          <div className="text-slate-200 font-sans text-[9.5px] leading-snug break-words">
-                                                            {(propDetails && typeof propDetails === "object" ? propDetails.description : String(propDetails)) || <span className="text-slate-500 italic">无</span>}
-                                                          </div>
-                                                        </React.Fragment>
-                                                      );
-                                                    })}
-                                                  </div>
-                                                </div>
-                                              </div>
-                                            )}
-                                            {/* Tiny arrow pointing down */}
-                                            <div className={`absolute top-full ${isRightSide ? 'right-4' : 'left-4'} border-4 border-transparent border-t-slate-900/95`} />
-                                          </div>
-                                        </div>
-                                      );
-                                    })}
-                                  </div>
-                                )}
-                              </motion.div>
-                            )}
-                          </div>
-                        );
-                      })
-                    )}
-                  </div>
-
-                </div>
-              </motion.div>
+              <McpView 
+                showTips={showTips}
+                toggleShowTips={toggleShowTips}
+                setShowAddServerModal={setShowAddServerModal}
+                mcpServers={mcpServers}
+                handleToggleMcpStatus={handleToggleMcpStatus}
+                expandedMcpServers={expandedMcpServers}
+                setExpandedMcpServers={setExpandedMcpServers}
+                handleTestMcpServer={handleTestMcpServer}
+                handleDeleteMcpServer={handleDeleteMcpServer}
+                handleCopyParamName={handleCopyParamName}
+                copiedParamKey={copiedParamKey}
+              />
             )}
 
-            {/* ========================================================
-                5. SETTINGS VIEW (Settings + Analytics Grid Heatmap matching screenshot)
-                ======================================================== */}
             {activeTab === "settings" && (
-              <motion.div 
-                key="settings-view"
-                initial={{ opacity: 0, y: 5 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -5 }}
-                transition={{ duration: 0.15 }}
-                className="p-6 overflow-y-auto h-full"
-              >
-                <div className="max-w-5xl mx-auto space-y-7">
-                  
-                  {/* Page header banner */}
-                  <div className="border-b border-slate-100 pb-5 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-                    <div>
-                      <h2 className="text-xl font-display font-semibold text-slate-900 flex items-center gap-2">
-                        <Settings className="w-5 h-5 text-indigo-500 shrink-0" />
-                        <span>大模型连接管理与运行看板</span>
-                      </h2>
-                      {showTips && (
-                        <p className="text-xs text-slate-500 mt-1 animate-fade-in">
-                          在这里注册并管理可用于智能助理调度的底层 LLM 模型供应商（OpenAI 兼容端点），并监控核心运行调用数据。
-                        </p>
-                      )}
-                    </div>
-
-                    <button
-                      onClick={toggleShowTips}
-                      className={`flex items-center gap-1.5 px-2.5 py-2 rounded-lg border text-xs font-medium transition-all cursor-pointer shrink-0 self-end sm:self-auto ${
-                        showTips 
-                          ? "bg-indigo-50 border-indigo-200 text-indigo-700 hover:bg-indigo-100" 
-                          : "bg-white border-slate-200 text-slate-600 hover:bg-slate-50"
-                      }`}
-                    >
-                      <Info className="w-3.5 h-3.5" />
-                      <span>{showTips ? "隐藏说明" : "显示说明"}</span>
-                    </button>
-                  </div>
-
-                  {/* ==========================================
-                      STUNNING ANALYTICS WIDGETS (Matching 1st Screenshot)
-                      ========================================== */}
-                  <div className="space-y-4">
-                    <div className="flex items-center gap-2">
-                      <Flame className="w-4 h-4 text-orange-500" />
-                      <h3 className="font-display font-semibold text-sm text-slate-800">智能网关运行统计仪表盘 (What's up next?)</h3>
-                    </div>
-
-                    {/* Stats summary row */}
-                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                      
-                      <div className="bg-white border border-slate-200/80 rounded-xl p-4 shadow-2xs">
-                        <span className="text-[10px] text-slate-400 font-medium">会话总数 / Sessions</span>
-                        <h4 className="text-xl font-display font-semibold text-slate-900 mt-1">53</h4>
-                        <div className="text-[9px] text-emerald-600 mt-1 font-semibold flex items-center gap-1">
-                          <span>↑ 12%</span>
-                          <span className="text-slate-400 font-normal">本周活跃</span>
-                        </div>
-                      </div>
-
-                      <div className="bg-white border border-slate-200/80 rounded-xl p-4 shadow-2xs">
-                        <span className="text-[10px] text-slate-400 font-medium">消息交互 / Messages</span>
-                        <h4 className="text-xl font-display font-semibold text-slate-900 mt-1">16,479</h4>
-                        <div className="text-[9px] text-slate-400 mt-1">
-                          平均会话消息数: <span className="font-mono">12.5条</span>
-                        </div>
-                      </div>
-
-                      <div className="bg-white border border-slate-200/80 rounded-xl p-4 shadow-2xs">
-                        <span className="text-[10px] text-slate-400 font-medium">累计消耗 / Total tokens</span>
-                        <h4 className="text-xl font-display font-semibold text-slate-900 mt-1">100.9M</h4>
-                        <div className="text-[9px] text-slate-400 mt-1">
-                          折合约为 134.5 万个中文字符
-                        </div>
-                      </div>
-
-                      <div className="bg-white border border-slate-200/80 rounded-xl p-4 shadow-2xs">
-                        <span className="text-[10px] text-slate-400 font-medium">最长连续工作天数 / Streak</span>
-                        <h4 className="text-xl font-display font-semibold text-slate-900 mt-1">15 天</h4>
-                        <div className="text-[9px] text-orange-600 font-semibold mt-1">
-                          最高活跃记录：4天连续
-                        </div>
-                      </div>
-
-                    </div>
-
-                    {/* Heatmap Contribution Calendar-style Widget */}
-                    <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-2xs">
-                      <div className="flex justify-between items-center mb-3">
-                        <h4 className="text-xs font-semibold text-slate-700 flex items-center gap-2">
-                          <Calendar className="w-3.5 h-3.5 text-slate-400" />
-                          <span>AI 每日协同调用热力图 (最近45周)</span>
-                        </h4>
-                        <div className="flex gap-1.5 items-center text-[10px] text-slate-400">
-                          <span>少</span>
-                          <span className="w-2.5 h-2.5 bg-slate-100 rounded"></span>
-                          <span className="w-2.5 h-2.5 bg-blue-100 rounded"></span>
-                          <span className="w-2.5 h-2.5 bg-blue-300 rounded"></span>
-                          <span className="w-2.5 h-2.5 bg-blue-500 rounded"></span>
-                          <span className="w-2.5 h-2.5 bg-blue-700 rounded"></span>
-                          <span>多</span>
-                        </div>
-                      </div>
-
-                      {/* Heatmap Grid of blue blocks representing calendar contributions */}
-                      <div className="flex gap-1 overflow-x-auto py-2">
-                        {Array.from({ length: 45 }).map((_, weekIdx) => (
-                          <div key={weekIdx} className="flex flex-col gap-1 shrink-0">
-                            {Array.from({ length: 7 }).map((_, dayIdx) => {
-                              // Simulate custom weighting for a beautiful look: more intense toward bottom-right
-                              const weight = Math.random();
-                              let bgClass = "bg-slate-100";
-                              if (weekIdx > 28) {
-                                if (weight > 0.8) bgClass = "bg-blue-700";
-                                else if (weight > 0.5) bgClass = "bg-blue-500";
-                                else if (weight > 0.25) bgClass = "bg-blue-300";
-                                else bgClass = "bg-blue-100";
-                              } else if (weekIdx > 15) {
-                                if (weight > 0.85) bgClass = "bg-blue-500";
-                                else if (weight > 0.6) bgClass = "bg-blue-300";
-                                else if (weight > 0.3) bgClass = "bg-blue-100";
-                              } else {
-                                if (weight > 0.95) bgClass = "bg-blue-300";
-                                else if (weight > 0.85) bgClass = "bg-blue-100";
-                              }
-
-                              return (
-                                <div 
-                                  key={dayIdx} 
-                                  className={`w-2.5 h-2.5 rounded-sm transition-colors ${bgClass}`} 
-                                  title={`调用周数 ${weekIdx + 1}, 星期 ${dayIdx + 1}`}
-                                />
-                              );
-                            })}
-                          </div>
-                        ))}
-                      </div>
-                      <p className="text-[10px] text-slate-400 mt-2 font-mono text-center">
-                        数据来源：Local Model Gateway Operations Tracker (2026年)
-                      </p>
-                    </div>
-                  </div>
-
-                  {/* ==========================================
-                      MODEL CONFIGURATIONS FORM & LIST
-                      ========================================== */}
-                  <div className="space-y-4">
-                    <div className="flex justify-between items-center pb-2 border-b border-slate-50">
-                      <h3 className="font-display font-semibold text-sm text-slate-800 flex items-center gap-2">
-                        <Key className="w-4 h-4 text-slate-400" />
-                        <span>大语言模型接入与密钥库 (LLM Gateways)</span>
-                      </h3>
-                      
-                      <button 
-                        onClick={() => setShowAddModelModal(true)}
-                        className="px-2.5 py-1.5 border border-slate-200 hover:border-slate-350 text-slate-700 rounded-lg text-xs font-medium bg-white shadow-3xs transition-colors"
-                      >
-                        + 注册新模型
-                      </button>
-                    </div>
-
-                    {/* New model inline configuration form */}
-                    {showAddModelModal && (
-                      <motion.div 
-                        initial={{ opacity: 0, y: 10 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        className="p-4 border border-slate-200 bg-slate-50/50 rounded-xl space-y-4 max-w-lg text-xs"
-                      >
-                        <div className="flex justify-between items-center border-b border-slate-100 pb-2">
-                          <span className="font-semibold text-slate-700">配置自定义兼容 API 节点</span>
-                          <button onClick={() => setShowAddModelModal(false)} className="text-slate-400 hover:text-slate-600">
-                            <X className="w-4 h-4" />
-                          </button>
-                        </div>
-
-                        <form onSubmit={handleAddNewModel} className="space-y-3">
-                          <div className="grid grid-cols-2 gap-3">
-                            <div>
-                              <label className="block text-[11px] font-medium text-slate-500 mb-1">模型商业名称</label>
-                              <input 
-                                type="text" 
-                                required
-                                placeholder="如: Claude 3.5 (专属中继)"
-                                value={newModel.name}
-                                onChange={(e) => setNewModel({ ...newModel, name: e.target.value })}
-                                className="w-full border border-slate-200 rounded-lg px-2.5 py-1.5 focus:outline-hidden bg-white"
-                              />
-                            </div>
-                            <div>
-                              <label className="block text-[11px] font-medium text-slate-500 mb-1">后端框架标准</label>
-                              <select 
-                                value={newModel.provider}
-                                onChange={(e) => setNewModel({ ...newModel, provider: e.target.value as any })}
-                                className="w-full border border-slate-200 rounded-lg px-2.5 py-1.5 focus:outline-hidden bg-white cursor-pointer"
-                              >
-                                <option value="OpenAI">OpenAI Compatible (兼容端点)</option>
-                                <option value="DeepSeek">DeepSeek API</option>
-                                <option value="Claude">Anthropic SDK</option>
-                                <option value="Custom">其他自定义网关</option>
-                              </select>
-                            </div>
-                          </div>
-
-                          <div>
-                            <label className="block text-[11px] font-medium text-slate-500 mb-1">API 基准请求地址 (Base URL)</label>
-                            <input 
-                              type="text" 
-                              placeholder="https://api.openai.com/v1"
-                              value={newModel.baseUrl}
-                              onChange={(e) => setNewModel({ ...newModel, baseUrl: e.target.value })}
-                              className="w-full border border-slate-200 rounded-lg px-2.5 py-1.5 font-mono focus:outline-hidden bg-white"
-                            />
-                          </div>
-
-                          <div>
-                            <label className="block text-[11px] font-medium text-slate-500 mb-1">自定义验证凭证 (API KEY)</label>
-                            <input 
-                              type="password" 
-                              placeholder="sk-................................"
-                              value={newModel.apiKey}
-                              onChange={(e) => setNewModel({ ...newModel, apiKey: e.target.value })}
-                              className="w-full border border-slate-200 rounded-lg px-2.5 py-1.5 font-mono focus:outline-hidden bg-white"
-                            />
-                          </div>
-
-                          <div className="flex justify-end gap-2 pt-2 border-t border-slate-150">
-                            <button 
-                              type="button" 
-                              onClick={() => setShowAddModelModal(false)}
-                              className="px-3 py-1 bg-white border border-slate-200 rounded-lg font-medium"
-                            >
-                              取消
-                            </button>
-                            <button 
-                              type="submit"
-                              className="px-4 py-1 bg-slate-900 text-white rounded-lg font-medium shadow-2xs hover:bg-slate-800"
-                            >
-                              保存模型
-                            </button>
-                          </div>
-                        </form>
-                      </motion.div>
-                    )}
-
-                    {/* Model Configs Grid */}
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      {modelConfigs.map((config) => {
-                        const testStatus = modelConnectionStatuses[config.id];
-                        const isTesting = testingModelId === config.id;
-                        
-                        return (
-                          <div 
-                            key={config.id}
-                            className="bg-white border border-slate-200/80 rounded-xl p-4 shadow-3xs flex flex-col justify-between hover:shadow-2xs transition-shadow duration-200"
-                          >
-                            <div>
-                              <div className="flex items-center justify-between mb-2.5">
-                                <div className="flex items-center gap-2">
-                                  <h4 className="font-semibold text-xs text-slate-900">{config.name}</h4>
-                                  <span className="px-1.5 py-0.2 text-[8px] font-bold uppercase rounded bg-slate-100 text-slate-500 font-mono">
-                                    {config.provider}
-                                  </span>
-                                </div>
-
-                                {/* Toggle switch config enable */}
-                                <button 
-                                  onClick={() => {
-                                    setModelConfigs(prev => prev.map(m => m.id === config.id ? { ...m, enabled: !m.enabled } : m));
-                                  }}
-                                  className={`relative inline-flex h-4 w-7 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-hidden ${
-                                    config.enabled ? "bg-slate-900" : "bg-slate-200"
-                                  }`}
-                                >
-                                  <span className={`pointer-events-none inline-block h-3 w-3 transform rounded-full bg-white shadow-sm ring-0 transition duration-200 ease-in-out ${
-                                    config.enabled ? "translate-x-3" : "translate-x-0"
-                                  }`} />
-                                </button>
-                              </div>
-
-                              <div className="space-y-1 text-[10px] font-mono text-slate-500 mb-3">
-                                <p className="truncate">端点: <span className="text-slate-600">{config.baseUrl}</span></p>
-                                <p>密钥: <span className="text-slate-400">{config.apiKey ? "••••••••••••••••" : "（未注入）"}</span></p>
-                              </div>
-
-                              {/* Connection status badge/details */}
-                              {testStatus && (
-                                <div className={`p-2 rounded-lg text-[10px] leading-relaxed mb-3 font-sans border ${
-                                  testStatus.status === "connected" 
-                                    ? "bg-emerald-50 border-emerald-100 text-emerald-800" 
-                                    : testStatus.status === "simulated"
-                                    ? "bg-amber-50/50 border-amber-100 text-amber-800"
-                                    : "bg-rose-50 border-rose-100 text-rose-800"
-                                }`}>
-                                  <div className="flex items-center gap-1.5 font-semibold">
-                                    <span className={`w-1.5 h-1.5 rounded-full ${
-                                      testStatus.status === "connected" ? "bg-emerald-500 animate-pulse" :
-                                      testStatus.status === "simulated" ? "bg-amber-500" : "bg-rose-500"
-                                    }`} />
-                                    <span>
-                                      {testStatus.status === "connected" ? `已联通 (${testStatus.latency || "正常"})` :
-                                       testStatus.status === "simulated" ? "本地仿真" : "离线 / 联通失败"}
-                                    </span>
-                                  </div>
-                                  <p className="mt-0.5 text-slate-500 font-mono text-[9px] leading-tight">{testStatus.message}</p>
-                                </div>
-                              )}
-                            </div>
-
-                            <div className="flex items-center justify-between mt-1 pt-2.5 border-t border-slate-50">
-                              <button 
-                                onClick={() => handleTestModelConfig(config)}
-                                disabled={isTesting}
-                                className={`flex items-center gap-1 px-2.5 py-1 rounded border text-[10px] font-medium transition-all ${
-                                  isTesting 
-                                    ? "bg-slate-50 text-slate-400 border-slate-200" 
-                                    : testStatus?.status === "connected"
-                                    ? "bg-emerald-50/50 hover:bg-emerald-50 text-emerald-700 border-emerald-200/50"
-                                    : "bg-white hover:bg-slate-50 text-slate-700 border-slate-200"
-                                }`}
-                              >
-                                <RefreshCw className={`w-2.5 h-2.5 shrink-0 ${isTesting ? "animate-spin" : ""}`} />
-                                <span>{isTesting ? "正在检测..." : "连通测试"}</span>
-                              </button>
-
-                              {config.isCustom && (
-                                <button 
-                                  onClick={() => handleDeleteModel(config.id)}
-                                  className="text-[10px] text-red-500 hover:underline flex items-center gap-1 transition-all"
-                                >
-                                  <Trash2 className="w-2.5 h-2.5" />
-                                  <span>卸载</span>
-                                </button>
-                              )}
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-
-                    {/* API security hint */}
-                    <div className="p-3.5 bg-amber-50/50 rounded-xl border border-amber-200/40 text-[11px] text-amber-800 leading-relaxed flex gap-2.5">
-                      <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
-                      <div>
-                        <strong>API 密钥与连接安全：</strong>
-                        <p className="mt-0.5 text-slate-600">
-                          本平台采用<strong>全栈双端安全架构</strong>，您在前端配置的所有供应商凭证将仅保存在浏览器本地加密层。在发送对话时，通过 `/api/chat` 进行安全服务器转发代理，绝不在客户端暴露密钥。
-                        </p>
-                      </div>
-                    </div>
-                  </div>
-
-                </div>
-              </motion.div>
+              <SettingsView 
+                showTips={showTips}
+                toggleShowTips={toggleShowTips}
+                setShowAddModelModal={setShowAddModelModal}
+                showAddModelModal={showAddModelModal}
+                handleAddNewModel={handleAddNewModel}
+                newModel={newModel}
+                setNewModel={setNewModel}
+                modelConfigs={modelConfigs}
+                setModelConfigs={setModelConfigs}
+                modelConnectionStatuses={modelConnectionStatuses}
+                testingModelId={testingModelId}
+                handleTestModelConfig={handleTestModelConfig}
+                handleDeleteModel={handleDeleteModel}
+              />
             )}
 
           </AnimatePresence>
@@ -3626,6 +2089,7 @@ export default function App() {
       <AnimatePresence>
         {showUploadSkillModal && (
           <motion.div 
+            key="modal-upload-skill"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
@@ -3734,6 +2198,7 @@ export default function App() {
             ======================================================== */}
         {showAddServerModal && (
           <motion.div 
+            key="modal-add-mcp-server"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
@@ -3830,6 +2295,7 @@ export default function App() {
             ======================================================== */}
         {viewingTask && (
           <motion.div 
+            key="modal-view-task"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center z-50 p-4"
@@ -3990,6 +2456,7 @@ export default function App() {
             ======================================================== */}
         {isEditingTaskOpen && editingTask && (
           <motion.div 
+            key="modal-edit-task"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center z-50 p-4"
@@ -4169,6 +2636,7 @@ export default function App() {
             ======================================================== */}
         {(runningTask || runningTaskResult) && (
           <motion.div 
+            key="modal-running-task"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center z-50 p-4"
@@ -4272,7 +2740,7 @@ export default function App() {
                   <button 
                     type="button"
                     onClick={() => setRunningTaskResult(null)}
-                    className="px-4 py-1.5 bg-slate-900 hover:bg-slate-800 text-white rounded-lg text-xs font-semibold transition-all shadow-2xs"
+                    className="px-4 py-1.5 bg-slate-900 hover:bg-slate-800 text-white rounded-lg text-xs font-semibold transition-all shadow-2xs cursor-pointer"
                   >
                     关闭结果预览
                   </button>
@@ -4281,12 +2749,293 @@ export default function App() {
             </motion.div>
           </motion.div>
         )}
+
+        {/* ========================================================
+            MODAL 1.8: USER LOGIN & ACCOUNT SWITCH MODAL
+            ======================================================== */}
+        {showLoginModal && (
+          <motion.div 
+            key="modal-login"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4 z-50"
+          >
+            <motion.div 
+              initial={{ scale: 0.95, y: 15 }}
+              animate={{ scale: 1, y: 0 }}
+              exit={{ scale: 0.95, y: 15 }}
+              className="bg-white border border-slate-200 rounded-2xl p-6 shadow-2xl max-w-lg w-full relative overflow-hidden"
+            >
+              {/* Top Banner Accent */}
+              <div className="absolute top-0 left-0 right-0 h-1.5 bg-gradient-to-r from-indigo-500 via-purple-500 to-emerald-500"></div>
+
+              <div className="flex justify-between items-start border-b border-slate-100 pb-4 mt-1">
+                <div>
+                  <div className="flex items-center gap-2">
+                    <div className="p-1.5 bg-indigo-50 text-indigo-600 rounded-lg">
+                      <UserCheck className="w-5 h-5" />
+                    </div>
+                    <h3 className="font-display font-semibold text-base text-slate-900">
+                      {isLoggedIn ? "切换账号 / 身份登录" : "用户登录 / 注册认证"}
+                    </h3>
+                  </div>
+                  <p className="text-xs text-slate-500 mt-1">
+                    登录后将自动同步个人认知偏好、自定义技能包与 MCP 工具配置
+                  </p>
+                </div>
+                <button 
+                  onClick={() => { setShowLoginModal(false); setLoginError(null); }} 
+                  className="p-1 hover:bg-slate-100 rounded-lg text-slate-400 hover:text-slate-600 transition-colors cursor-pointer"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              {/* Auth Navigation Tabs */}
+              <div className="flex bg-slate-100/80 p-1 rounded-xl mt-4 text-xs font-medium text-slate-600">
+                <button 
+                  type="button"
+                  onClick={() => { setLoginTab("quick"); setLoginError(null); }}
+                  className={`flex-1 py-1.5 rounded-lg transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+                    loginTab === "quick" ? "bg-white text-indigo-600 font-semibold shadow-xs" : "hover:text-slate-900"
+                  }`}
+                >
+                  <Sparkles className="w-3.5 h-3.5 text-indigo-500" />
+                  <span>一键预设身份</span>
+                </button>
+                <button 
+                  type="button"
+                  onClick={() => { setLoginTab("password"); setLoginError(null); }}
+                  className={`flex-1 py-1.5 rounded-lg transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+                    loginTab === "password" ? "bg-white text-indigo-600 font-semibold shadow-xs" : "hover:text-slate-900"
+                  }`}
+                >
+                  <Key className="w-3.5 h-3.5 text-slate-500" />
+                  <span>账号密码登录</span>
+                </button>
+                <button 
+                  type="button"
+                  onClick={() => { setLoginTab("phone"); setLoginError(null); }}
+                  className={`flex-1 py-1.5 rounded-lg transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+                    loginTab === "phone" ? "bg-white text-indigo-600 font-semibold shadow-xs" : "hover:text-slate-900"
+                  }`}
+                >
+                  <Smartphone className="w-3.5 h-3.5 text-slate-500" />
+                  <span>手机验证码</span>
+                </button>
+              </div>
+
+              {/* Tab Content */}
+              <div className="mt-4">
+                {loginTab === "quick" && (
+                  <div className="space-y-3">
+                    <p className="text-[11px] text-slate-500 leading-relaxed">
+                      点击下方适合的演示角色一键快速登录或切换，体验针对不同角色的差异化 AI 决策支持：
+                    </p>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 max-h-64 overflow-y-auto pr-1">
+                      {PRESET_USERS.map((preset) => (
+                        <div 
+                          key={preset.name}
+                          onClick={() => handleLoginPreset(preset)}
+                          className={`p-3 border rounded-xl cursor-pointer transition-all hover:border-indigo-300 hover:shadow-xs group ${
+                            userProfile.name === preset.name && isLoggedIn
+                              ? "border-indigo-500 bg-indigo-50/40 ring-1 ring-indigo-500"
+                              : "border-slate-200 bg-slate-50/50 hover:bg-white"
+                          }`}
+                        >
+                          <div className="flex items-center gap-2.5 mb-2">
+                            <div className={`w-8 h-8 rounded-full ${preset.avatarBg} flex items-center justify-center font-bold text-xs shadow-xs`}>
+                              {preset.name.slice(0, 1)}
+                            </div>
+                            <div>
+                              <div className="font-semibold text-xs text-slate-800 flex items-center gap-1">
+                                <span>{preset.name}</span>
+                                {userProfile.name === preset.name && isLoggedIn && (
+                                  <span className="text-[9px] bg-indigo-600 text-white px-1 rounded font-normal">当前</span>
+                                )}
+                              </div>
+                              <div className="text-[10px] text-slate-500 font-mono truncate">{preset.role}</div>
+                            </div>
+                          </div>
+                          <div className="text-[10px] text-slate-400 border-t border-slate-100 pt-1.5 flex items-center justify-between">
+                            <span>{preset.department}</span>
+                            <span className="text-indigo-600 group-hover:translate-x-0.5 transition-transform font-medium">登录 →</span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {loginTab === "password" && (
+                  <form onSubmit={handleLoginSubmit} className="space-y-3.5 text-xs">
+                    <div>
+                      <label className="block text-[11px] font-medium text-slate-600 mb-1">用户名 / 企业邮箱</label>
+                      <input 
+                        type="text" 
+                        required
+                        placeholder="例如：zhangsan@enterprise.ai 或 张三"
+                        value={loginFormName}
+                        onChange={(e) => setLoginFormName(e.target.value)}
+                        className="w-full border border-slate-200 rounded-xl px-3 py-2 text-slate-800 bg-slate-50/50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-[11px] font-medium text-slate-600 mb-1">登录密码</label>
+                      <input 
+                        type="password" 
+                        required
+                        placeholder="••••••••"
+                        value={loginFormPassword}
+                        onChange={(e) => setLoginFormPassword(e.target.value)}
+                        className="w-full border border-slate-200 rounded-xl px-3 py-2 text-slate-800 bg-slate-50/50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
+                      />
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-2.5">
+                      <div>
+                        <label className="block text-[11px] font-medium text-slate-600 mb-1">职级角色 (可选)</label>
+                        <input 
+                          type="text" 
+                          placeholder="例如：高级架构师"
+                          value={loginFormRole}
+                          onChange={(e) => setLoginFormRole(e.target.value)}
+                          className="w-full border border-slate-200 rounded-xl px-3 py-2 text-slate-800 bg-slate-50/50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[11px] font-medium text-slate-600 mb-1">归属部门 (可选)</label>
+                        <input 
+                          type="text" 
+                          placeholder="例如：研发中心"
+                          value={loginFormDept}
+                          onChange={(e) => setLoginFormDept(e.target.value)}
+                          className="w-full border border-slate-200 rounded-xl px-3 py-2 text-slate-800 bg-slate-50/50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
+                        />
+                      </div>
+                    </div>
+
+                    {loginError && (
+                      <div className="p-2.5 bg-rose-50 border border-rose-100 rounded-xl text-[11px] text-rose-600 flex items-center gap-2">
+                        <AlertTriangle className="w-4 h-4 shrink-0 text-rose-500" />
+                        <span>{loginError}</span>
+                      </div>
+                    )}
+
+                    <div className="flex justify-end gap-2 pt-2 border-t border-slate-100">
+                      <button 
+                        type="button" 
+                        onClick={() => setShowLoginModal(false)}
+                        className="px-4 py-2 border border-slate-200 rounded-xl font-medium text-slate-600 hover:bg-slate-50 cursor-pointer"
+                      >
+                        取消
+                      </button>
+                      <button 
+                        type="submit"
+                        className="px-5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold rounded-xl shadow-xs transition-all cursor-pointer"
+                      >
+                        登录账号
+                      </button>
+                    </div>
+                  </form>
+                )}
+
+                {loginTab === "phone" && (
+                  <form onSubmit={handleLoginSubmit} className="space-y-3.5 text-xs">
+                    <div>
+                      <label className="block text-[11px] font-medium text-slate-600 mb-1">手机号码</label>
+                      <div className="flex gap-2">
+                        <input 
+                          type="tel" 
+                          required
+                          placeholder="请输入 11 位手机号码"
+                          value={loginFormPhone}
+                          onChange={(e) => setLoginFormPhone(e.target.value)}
+                          className="flex-1 border border-slate-200 rounded-xl px-3 py-2 text-slate-800 bg-slate-50/50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
+                        />
+                        <button 
+                          type="button"
+                          disabled={smsCountdown > 0}
+                          onClick={handleSendSmsCode}
+                          className="px-3.5 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-medium rounded-xl text-[11px] border border-slate-200 transition-colors disabled:opacity-50 cursor-pointer shrink-0"
+                        >
+                          {smsCountdown > 0 ? `${smsCountdown}s 后重试` : "获取验证码"}
+                        </button>
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="block text-[11px] font-medium text-slate-600 mb-1">短信验证码</label>
+                      <input 
+                        type="text" 
+                        required
+                        placeholder="请输入 6 位数字验证码"
+                        value={loginFormCode}
+                        onChange={(e) => setLoginFormCode(e.target.value)}
+                        className="w-full border border-slate-200 rounded-xl px-3 py-2 text-slate-800 bg-slate-50/50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 font-mono tracking-wider"
+                      />
+                    </div>
+
+                    {loginError && (
+                      <div className="p-2.5 bg-rose-50 border border-rose-100 rounded-xl text-[11px] text-rose-600 flex items-center gap-2">
+                        <AlertTriangle className="w-4 h-4 shrink-0 text-rose-500" />
+                        <span>{loginError}</span>
+                      </div>
+                    )}
+
+                    <div className="flex justify-end gap-2 pt-2 border-t border-slate-100">
+                      <button 
+                        type="button" 
+                        onClick={() => setShowLoginModal(false)}
+                        className="px-4 py-2 border border-slate-200 rounded-xl font-medium text-slate-600 hover:bg-slate-50 cursor-pointer"
+                      >
+                        取消
+                      </button>
+                      <button 
+                        type="submit"
+                        className="px-5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold rounded-xl shadow-xs transition-all cursor-pointer"
+                      >
+                        验证并登录
+                      </button>
+                    </div>
+                  </form>
+                )}
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+
+      </AnimatePresence>
+
+      {/* FastAPI Docs Modal */}
+      <ApiDocsModal 
+        isOpen={showApiDocsModal} 
+        onClose={() => setShowApiDocsModal(false)} 
+      />
+
+      {/* Global Floating Auth Toast Notification */}
+      <AnimatePresence>
+        {authNotice && (
+          <motion.div
+            key="toast-auth-notice"
+            initial={{ opacity: 0, y: -20, x: "-50%", scale: 0.95 }}
+            animate={{ opacity: 1, y: 0, x: "-50%", scale: 1 }}
+            exit={{ opacity: 0, y: -20, x: "-50%", scale: 0.95 }}
+            className="fixed top-5 left-1/2 -translate-x-1/2 z-50 bg-slate-900/90 text-white text-xs px-4 py-2.5 rounded-full shadow-2xl backdrop-blur-md border border-slate-700/80 flex items-center gap-2"
+          >
+            <ShieldCheck className="w-4 h-4 text-emerald-400 shrink-0" />
+            <span>{authNotice}</span>
+          </motion.div>
+        )}
       </AnimatePresence>
 
       {/* Global Floating Toast Notification */}
       <AnimatePresence>
         {toast && (
           <motion.div
+            key="toast-global-notice"
             initial={{ opacity: 0, y: 20, x: "-50%", scale: 0.95 }}
             animate={{ opacity: 1, y: 0, x: "-50%", scale: 1 }}
             exit={{ opacity: 0, y: 15, x: "-50%", scale: 0.95 }}

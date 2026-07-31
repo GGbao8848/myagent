@@ -488,14 +488,6 @@ export default function App() {
     localStorage.setItem("office_ai_scheduler_messages", JSON.stringify(schedulerMessages));
   }, [schedulerMessages]);
 
-  useEffect(() => {
-    localStorage.setItem("office_ai_sessions", JSON.stringify(sessions));
-  }, [sessions]);
-
-  useEffect(() => {
-    localStorage.setItem("office_ai_active_session", activeSessionId);
-  }, [activeSessionId]);
-
   // Check API health status on load
   useEffect(() => {
     apiFetch("/api/health")
@@ -678,7 +670,9 @@ export default function App() {
     let currentSessionId = activeSessionId;
     let updatedSessions = [...sessions];
 
-    if (!activeSession) {
+    // 防御：activeSessionId 残留本地假 ID（session_ 前缀）时强制创建
+    const activeSessionObj = sessions.find(s => s.id === activeSessionId);
+    if (!activeSessionObj || currentSessionId.startsWith("session_")) {
       try {
         const created = await createSession();
         currentSessionId = created.id;

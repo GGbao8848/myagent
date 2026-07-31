@@ -12,19 +12,13 @@ export default defineConfig(() => {
       },
     },
     server: {
-      port: 9003,
+      port: 9005,
       // HMR is disabled in AI Studio via DISABLE_HMR env var.
       // Do not modify—file watching is disabled to prevent flickering during agent edits.
       hmr: process.env.DISABLE_HMR !== 'true',
       // Disable file watching when DISABLE_HMR is true to save CPU during agent edits.
       watch: process.env.DISABLE_HMR === 'true' ? null : {},
-      proxy: {
-        // agent 后端 API（FastAPI，deepagents 内核）
-        '/api': {
-          target: 'http://localhost:7890',
-          changeOrigin: true,
-        },
-      },
+      // 注意：/api 转发由 server.ts 原生代理处理（保 SSE 流式）
     },
   };
 });

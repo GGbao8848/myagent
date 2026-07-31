@@ -4,7 +4,7 @@
 const KEYCLOAK_URL = "http://localhost:6543";
 const REALM = "br-platform";
 const CLIENT_ID = "br-agent";
-const REDIRECT_URI = "http://localhost:9003/callback";
+const REDIRECT_URI = "http://localhost:9005/callback";
 
 // 与平台共享同一个 token key，登录/退出跨应用同步
 const TOKEN_KEY = "access_token";

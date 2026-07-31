@@ -7,12 +7,12 @@ import dotenv from "dotenv";
 dotenv.config();
 
 const app = express();
-const PORT = 9003;
+const PORT = 9005;
 
 app.use(express.json({ limit: "10mb" }));
 
 // ── /api 转发到 backend（FastAPI deepagents 内核）──
-const BACKEND_URL = process.env.AGENT_BACKEND_URL || "http://127.0.0.1:7890";
+const BACKEND_URL = process.env.AGENT_BACKEND_URL || "http://127.0.0.1:9004";
 console.log(`[server] /api 转发到 ${BACKEND_URL}`);
 
 app.use("/api", (req, res) => {

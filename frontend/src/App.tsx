@@ -15,9 +15,9 @@ import {
   Session, Message, Skill, MemoryItem, 
   MCPServer, ModelConfig, UserProfile, ScheduleTask
 } from "./types";
-import { 
-  initialUserProfile, initialSkills, initialMemories, 
-  initialMcpServers, initialModelConfigs, initialSessions,
+import {
+  initialUserProfile, initialSkills, initialMemories,
+  initialMcpServers, initialSessions,
   initialScheduleTasks
 } from "./mockData";
 import { DialogueView } from "./components/DialogueView";
@@ -154,10 +154,7 @@ export default function App() {
     return saved ? JSON.parse(saved) : initialMcpServers;
   });
 
-  const [modelConfigs, setModelConfigs] = useState<ModelConfig[]>(() => {
-    const saved = localStorage.getItem("office_ai_models");
-    return saved ? JSON.parse(saved) : initialModelConfigs;
-  });
+  const [modelConfigs, setModelConfigs] = useState<ModelConfig[]>([]);
 
   const [scheduleTasks, setScheduleTasks] = useState<ScheduleTask[]>(() => {
     const saved = localStorage.getItem("office_ai_schedule_tasks");
@@ -168,8 +165,9 @@ export default function App() {
 
   const [activeSessionId, setActiveSessionId] = useState<string>("");
 
-  // 挂载时从后端加载会话列表
+  // 登录后从后端加载会话列表
   useEffect(() => {
+    if (!hasAuthToken()) return;
     let cancelled = false;
     (async () => {
       try {
@@ -202,10 +200,11 @@ export default function App() {
       }
     })();
     return () => { cancelled = true; };
-  }, []);
+  }, [isLoggedIn]);
 
-  // 挂载时从后端加载真实 LLM 模型配置（替换 mock 数据）
+  // 登录后从后端加载真实 LLM 模型配置（替换 mock 数据）
   useEffect(() => {
+    if (!hasAuthToken()) return;
     (async () => {
       try {
         const settings = await getSettings();
@@ -229,7 +228,7 @@ export default function App() {
         console.error("加载模型配置失败:", e);
       }
     })();
-  }, []);
+  }, [isLoggedIn]);
 
   const [selectedModelId, setSelectedModelId] = useState<string>("model_gemini");
 
@@ -480,10 +479,6 @@ export default function App() {
   useEffect(() => {
     localStorage.setItem("office_ai_mcp_servers", JSON.stringify(mcpServers));
   }, [mcpServers]);
-
-  useEffect(() => {
-    localStorage.setItem("office_ai_models", JSON.stringify(modelConfigs));
-  }, [modelConfigs]);
 
   useEffect(() => {
     localStorage.setItem("office_ai_schedule_tasks", JSON.stringify(scheduleTasks));

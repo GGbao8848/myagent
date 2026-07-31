@@ -70,6 +70,62 @@ export async function getSettings(): Promise<SettingsData> {
   return resp.json();
 }
 
+// ── MCP 服务器 ──
+
+export interface MCPServerInfo {
+  id: string;
+  name: string;
+  type: string;
+  url: string;
+  enabled: boolean;
+  connected: boolean;
+  tool_count: number;
+  tools: Array<{ name: string; description: string; parameters?: string[] }>;
+  error: string;
+}
+
+export async function listMcpServers(): Promise<MCPServerInfo[]> {
+  const resp = await apiFetch("/api/mcp/servers");
+  if (!resp.ok) throw new Error("获取 MCP 服务器失败");
+  return resp.json();
+}
+
+export async function addMcpServer(data: {
+  id?: string;
+  name?: string;
+  type?: string;
+  url?: string;
+  config_json?: string;
+}): Promise<MCPServerInfo[]> {
+  const resp = await apiFetch("/api/mcp/servers", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  });
+  if (!resp.ok) {
+    const err = await resp.text();
+    throw new Error(err || "添加 MCP 服务器失败");
+  }
+  return resp.json();
+}
+
+export async function deleteMcpServer(id: string): Promise<void> {
+  const resp = await apiFetch(`/api/mcp/servers/${id}`, { method: "DELETE" });
+  if (!resp.ok) throw new Error("删除 MCP 服务器失败");
+}
+
+export async function toggleMcpServer(id: string): Promise<MCPServerInfo> {
+  const resp = await apiFetch(`/api/mcp/servers/${id}/toggle`, { method: "POST" });
+  if (!resp.ok) throw new Error("切换 MCP 服务器失败");
+  return resp.json();
+}
+
+export async function testMcpServer(id: string) {
+  const resp = await apiFetch(`/api/mcp/servers/${id}/test`, { method: "POST" });
+  if (!resp.ok) throw new Error("测试 MCP 服务器失败");
+  return resp.json();
+}
+
 export interface MessageItem {
   id: number;
   role: string;

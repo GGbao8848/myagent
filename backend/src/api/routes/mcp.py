@@ -1,23 +1,41 @@
-"""MCP 服务器管理路由。"""
+"""MCP 服务器管理路由（配置存 PG，连接管理保持运行时）。"""
 
 from __future__ import annotations
 
 import logging
+import uuid
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 
-from src.api.deps import get_mcp_manager, get_manager
+from src.api.auth import get_current_user
+from src.api.deps import get_db, get_mcp_manager, get_manager
 from src.mcp.config import (
     MCPServerConfig,
-    load_config,
     parse_mcp_servers_json,
-    save_config,
 )
 from src.mcp.client import MCPClientManager
 from src.models import MCPServerAddRequest, MCPServerItem, MCPTestResult
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/mcp", tags=["mcp"])
+
+
+def _username(user: dict) -> str:
+    return user.get("username", user.get("sub", ""))
+
+
+def _db_server_to_config(row: dict) -> MCPServerConfig:
+    """把 PG 行转成运行时 MCPServerConfig。"""
+    return MCPServerConfig(
+        id=row["id"],
+        name=row["name"],
+        type=row["type"],
+        url=row["url"],
+        command=row["command"],
+        args=row["args"],
+        headers=row["headers"],
+        enabled=row["enabled"],
+    )
 
 
 def _get_shared_manager() -> MCPClientManager:
@@ -39,7 +57,7 @@ def _status_to_item(status) -> MCPServerItem:
         connected=status.connected,
         tool_count=len(status.tools),
         tools=[_simplify_tool(t) for t in status.tools],
-        error=status.error,
+        error=status.error or "",
     )
 
 
@@ -78,27 +96,43 @@ def _resync_agent_tools(mgr: MCPClientManager) -> int:
 
 
 @router.get("/servers", response_model=list[MCPServerItem])
-async def list_servers():
-    """列出所有 MCP 服务器及其连接状态。"""
+async def list_servers(user: dict = Depends(get_current_user)):
+    """列出 MCP 服务器（公共 + 当前用户私有）及其连接状态。"""
+    owner = _username(user)
+    db = get_db()
+    rows = db.list_mcp_servers(owner)
     mgr = _get_shared_manager()
-    return [_status_to_item(s) for s in mgr.servers]
+    items = []
+    for row in rows:
+        # 找运行时的连接状态
+        status = next((s for s in mgr.servers if s.config.id == row["id"]), None)
+        if status:
+            items.append(_status_to_item(status))
+        else:
+            # PG 有但运行时未连接 → 显示未连接
+            items.append(MCPServerItem(
+                id=row["id"], name=row["name"], type=row["type"],
+                url=row["url"], enabled=row["enabled"],
+                connected=False, tool_count=0, tools=[], error="",
+            ))
+    return items
 
 
 @router.post("/servers", response_model=list[MCPServerItem])
-async def add_server(body: MCPServerAddRequest):
-    """添加 MCP 服务器。
+async def add_server(body: MCPServerAddRequest, user: dict = Depends(get_current_user)):
+    """添加 MCP 服务器（存 PG，公共或当前用户私有）。
 
     支持两种方式：
     1. 粘贴完整 JSON（config_json 字段），自动解析 mcpServers
     2. 逐字段填写（id, url, headers 等）
     """
-    mcp_config = load_config()
+    owner = _username(user)
+    db = get_db()
     new_servers: list[MCPServerConfig] = []
 
     if body.config_json:
         try:
-            parsed = parse_mcp_servers_json(body.config_json)
-            new_servers = parsed
+            new_servers = parse_mcp_servers_json(body.config_json)
         except Exception as e:
             raise HTTPException(400, f"JSON 解析失败: {e}")
     elif body.id and body.url:
@@ -112,41 +146,40 @@ async def add_server(body: MCPServerAddRequest):
     else:
         raise HTTPException(400, "请提供 config_json 或 (id + url)")
 
-    # 合并到已有配置（同名覆盖）
-    existing_ids = {s.id for s in mcp_config.servers}
+    # 存入 PG（带 owner）
     for ns in new_servers:
-        if ns.id in existing_ids:
-            for i, s in enumerate(mcp_config.servers):
-                if s.id == ns.id:
-                    mcp_config.servers[i] = ns
-                    break
-        else:
-            mcp_config.servers.append(ns)
+        # 公共配置（config_json 里的）存为公共，逐字段添加的存为当前用户私有
+        item_owner = "" if body.config_json else owner
+        db.save_mcp_server({
+            "id": ns.id, "name": ns.name or ns.id, "type": ns.type,
+            "url": ns.url or "", "command": ns.command or "", "args": ns.args or [],
+            "headers": ns.headers or {}, "owner": item_owner, "enabled": ns.enabled,
+        })
 
-    save_config(mcp_config)
-
-    # 同步到运行中的共享管理器
+    # 同步到运行中的共享管理器（只加配置，不自动连接，避免失败破坏请求）
     mgr = _get_shared_manager()
     for ns in new_servers:
-        mgr.add_server(ns)
-        # 异步连接并保持会话
         try:
-            await mgr.connect_and_keep(ns.id)
+            mgr.add_server(ns)
         except Exception:
-            pass
+            logger.warning("MCP 服务器 %s 注册到运行时失败", ns.id)
 
     # 动态注入新工具到 Agent
-    _resync_agent_tools(mgr)
+    try:
+        _resync_agent_tools(mgr)
+    except Exception:
+        logger.warning("MCP 工具同步失败", exc_info=True)
 
     return [_status_to_item(s) for s in mgr.servers]
 
 
 @router.delete("/servers/{server_id}")
-async def delete_server(server_id: str):
-    """删除 MCP 服务器。"""
-    mcp_config = load_config()
-    mcp_config.servers = [s for s in mcp_config.servers if s.id != server_id]
-    save_config(mcp_config)
+async def delete_server(server_id: str, user: dict = Depends(get_current_user)):
+    """删除 MCP 服务器（仅能删自己的私有配置）。"""
+    owner = _username(user)
+    db = get_db()
+    if not db.delete_mcp_server(server_id, owner):
+        raise HTTPException(404, f"MCP 服务器 '{server_id}' 不存在或无权删除")
 
     # 同步到共享管理器
     mgr = _get_shared_manager()
@@ -160,17 +193,16 @@ async def delete_server(server_id: str):
 
 
 @router.post("/servers/{server_id}/test", response_model=MCPTestResult)
-async def test_server(server_id: str):
+async def test_server(server_id: str, user: dict = Depends(get_current_user)):
     """测试 MCP 服务器连接并返回工具列表。"""
-    mcp_config = load_config()
-    cfg = None
-    for s in mcp_config.servers:
-        if s.id == server_id:
-            cfg = s
-            break
-
-    if not cfg:
+    owner = _username(user)
+    db = get_db()
+    rows = db.list_mcp_servers(owner)
+    row = next((r for r in rows if r["id"] == server_id), None)
+    if not row:
         raise HTTPException(404, f"MCP 服务器 '{server_id}' 不存在")
+
+    cfg = _db_server_to_config(row)
 
     mgr = _get_shared_manager()
     # 确保管理器中有该服务器配置
@@ -183,36 +215,41 @@ async def test_server(server_id: str):
         connected=status.connected,
         tools=[_simplify_tool(t) for t in status.tools],
         tool_count=len(status.tools),
-        error=status.error,
+        error=status.error or "",
     )
 
 
 @router.post("/servers/{server_id}/toggle", response_model=MCPServerItem)
-async def toggle_server(server_id: str):
+async def toggle_server(server_id: str, user: dict = Depends(get_current_user)):
     """启用或禁用 MCP 服务器。"""
-    mcp_config = load_config()
-    found = None
-    for s in mcp_config.servers:
-        if s.id == server_id:
-            s.enabled = not s.enabled
-            found = s
-            break
-
-    if not found:
+    owner = _username(user)
+    db = get_db()
+    rows = db.list_mcp_servers(owner)
+    row = next((r for r in rows if r["id"] == server_id), None)
+    if not row:
         raise HTTPException(404, f"MCP 服务器 '{server_id}' 不存在")
 
-    save_config(mcp_config)
+    new_enabled = not row["enabled"]
+    db.update_mcp_server(server_id, owner, enabled=new_enabled)
+    row["enabled"] = new_enabled
+    cfg = _db_server_to_config(row)
 
     # 同步到共享管理器
     mgr = _get_shared_manager()
-    mgr.add_server(found)
-    if found.enabled:
+    try:
+        mgr.add_server(cfg)
+    except Exception:
+        logger.warning("MCP 服务器 %s 注册到运行时失败", server_id)
+    if new_enabled:
         try:
             await mgr.connect_and_keep(server_id)
         except Exception:
-            pass
+            logger.warning("MCP 服务器 %s 连接失败", server_id)
     else:
-        await mgr.close_session(server_id)
+        try:
+            await mgr.close_session(server_id)
+        except Exception:
+            pass
 
     # 动态更新 Agent 工具
     _resync_agent_tools(mgr)

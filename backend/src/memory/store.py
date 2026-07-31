@@ -170,6 +170,151 @@ class Database:
             return row["message_count"] if row else 0
 
     # ------------------------------------------------------------------
+    # 技能（公共 + 私有）
+    # ------------------------------------------------------------------
+
+    def list_skills(self, owner: str = "") -> list[dict[str, Any]]:
+        """列出技能（owner='' 时返回公共 + 当前用户私有）。"""
+        with self._conn() as conn:
+            rows = conn.execute(
+                "SELECT id, name, description, category, owner, enabled, is_custom, created_at "
+                "FROM agent_skills WHERE owner = '' OR owner = %s ORDER BY name",
+                (owner,),
+            ).fetchall()
+        return [dict(r) for r in rows]
+
+    def save_skill(self, skill: dict[str, Any]) -> None:
+        """插入或更新技能元数据。"""
+        with self._conn() as conn:
+            conn.execute(
+                """INSERT INTO agent_skills (id, name, description, category, owner, enabled, is_custom, created_at)
+                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                   ON CONFLICT (id) DO UPDATE SET
+                     name = EXCLUDED.name,
+                     description = EXCLUDED.description,
+                     category = EXCLUDED.category,
+                     owner = EXCLUDED.owner,
+                     enabled = EXCLUDED.enabled,
+                     is_custom = EXCLUDED.is_custom""",
+                (
+                    skill["id"], skill.get("name", ""), skill.get("description", ""),
+                    skill.get("category", "custom"), skill.get("owner", ""),
+                    skill.get("enabled", True), skill.get("is_custom", False),
+                    skill.get("created_at", _now()),
+                ),
+            )
+
+    def update_skill(self, skill_id: str, owner: str, **fields) -> bool:
+        """更新技能状态，校验归属。"""
+        allowed = {"enabled", "description", "category", "name"}
+        updates = {k: v for k, v in fields.items() if k in allowed}
+        if not updates:
+            return False
+        set_clause = ", ".join(f"{k} = %s" for k in updates)
+        with self._conn() as conn:
+            cur = conn.execute(
+                f"UPDATE agent_skills SET {set_clause} WHERE id = %s AND (owner = '' OR owner = %s)",
+                (*updates.values(), skill_id, owner),
+            )
+            return cur.rowcount > 0
+
+    def delete_skill(self, skill_id: str, owner: str) -> bool:
+        """删除私有技能（仅能删自己的）。"""
+        with self._conn() as conn:
+            cur = conn.execute(
+                "DELETE FROM agent_skills WHERE id = %s AND owner = %s",
+                (skill_id, owner),
+            )
+            return cur.rowcount > 0
+
+    def skill_exists(self, skill_id: str, owner: str = "") -> bool:
+        with self._conn() as conn:
+            row = conn.execute(
+                "SELECT 1 FROM agent_skills WHERE id = %s AND (owner = '' OR owner = %s)",
+                (skill_id, owner),
+            ).fetchone()
+            return row is not None
+
+    # ------------------------------------------------------------------
+    # MCP 服务器（公共 + 私有）
+    # ------------------------------------------------------------------
+
+    def list_mcp_servers(self, owner: str = "") -> list[dict[str, Any]]:
+        """列出 MCP 服务器（公共 + 当前用户私有）。"""
+        with self._conn() as conn:
+            rows = conn.execute(
+                "SELECT id, name, type, url, command, args, headers, owner, enabled "
+                "FROM agent_mcp_servers WHERE owner = '' OR owner = %s ORDER BY name",
+                (owner,),
+            ).fetchall()
+        result = []
+        for r in rows:
+            d = dict(r)
+            try:
+                d["args"] = json.loads(d["args"])
+            except json.JSONDecodeError:
+                d["args"] = []
+            try:
+                d["headers"] = json.loads(d["headers"])
+            except json.JSONDecodeError:
+                d["headers"] = {}
+            result.append(d)
+        return result
+
+    def save_mcp_server(self, server: dict[str, Any]) -> None:
+        """插入或更新 MCP 服务器。"""
+        args_json = json.dumps(server.get("args", []), ensure_ascii=False)
+        headers_json = json.dumps(server.get("headers", {}), ensure_ascii=False)
+        with self._conn() as conn:
+            conn.execute(
+                """INSERT INTO agent_mcp_servers (id, name, type, url, command, args, headers, owner, enabled)
+                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                   ON CONFLICT (id) DO UPDATE SET
+                     name = EXCLUDED.name,
+                     type = EXCLUDED.type,
+                     url = EXCLUDED.url,
+                     command = EXCLUDED.command,
+                     args = EXCLUDED.args,
+                     headers = EXCLUDED.headers,
+                     owner = EXCLUDED.owner,
+                     enabled = EXCLUDED.enabled""",
+                (
+                    server["id"], server.get("name", ""), server.get("type", "streamablehttp"),
+                    server.get("url", ""), server.get("command", ""),
+                    args_json, headers_json, server.get("owner", ""), server.get("enabled", True),
+                ),
+            )
+
+    def update_mcp_server(self, server_id: str, owner: str, **fields) -> bool:
+        """更新 MCP 服务器，校验归属。"""
+        allowed = {"enabled", "url", "name", "headers"}
+        updates = {}
+        for k, v in fields.items():
+            if k in allowed:
+                if k == "headers":
+                    updates[k] = json.dumps(v or {}, ensure_ascii=False)
+                else:
+                    updates[k] = v
+        if not updates:
+            return False
+        set_clause = ", ".join(f"{k} = %s" for k in updates)
+        with self._conn() as conn:
+            cur = conn.execute(
+                f"UPDATE agent_mcp_servers SET {set_clause} WHERE id = %s AND (owner = '' OR owner = %s)",
+                (*updates.values(), server_id, owner),
+            )
+            return cur.rowcount > 0
+
+    def delete_mcp_server(self, server_id: str, owner: str) -> bool:
+        """删除私有 MCP 服务器（仅能删自己的）。"""
+        with self._conn() as conn:
+            cur = conn.execute(
+                "DELETE FROM agent_mcp_servers WHERE id = %s AND owner = %s",
+                (server_id, owner),
+            )
+            return cur.rowcount > 0
+
+    # ------------------------------------------------------------------
     # 内部
     # ------------------------------------------------------------------
 
@@ -203,6 +348,39 @@ class Database:
             )
             cur.execute(
                 "CREATE INDEX IF NOT EXISTS idx_agent_sessions_updated ON agent_sessions(updated_at DESC)"
+            )
+            # 技能元数据表（owner=''=公共，owner=user_id=私有）
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS agent_skills (
+                    id          TEXT PRIMARY KEY,
+                    name        TEXT NOT NULL,
+                    description TEXT NOT NULL DEFAULT '',
+                    category    TEXT NOT NULL DEFAULT 'custom',
+                    owner       TEXT NOT NULL DEFAULT '',
+                    enabled     BOOLEAN NOT NULL DEFAULT TRUE,
+                    is_custom   BOOLEAN NOT NULL DEFAULT FALSE,
+                    created_at  TEXT NOT NULL
+                )
+            """)
+            cur.execute(
+                "CREATE INDEX IF NOT EXISTS idx_agent_skills_owner ON agent_skills(owner)"
+            )
+            # MCP 服务器表（owner=''=公共，owner=user_id=私有）
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS agent_mcp_servers (
+                    id      TEXT PRIMARY KEY,
+                    name    TEXT NOT NULL,
+                    type    TEXT NOT NULL DEFAULT 'streamablehttp',
+                    url     TEXT NOT NULL DEFAULT '',
+                    command TEXT NOT NULL DEFAULT '',
+                    args    TEXT NOT NULL DEFAULT '[]',
+                    headers TEXT NOT NULL DEFAULT '{}',
+                    owner   TEXT NOT NULL DEFAULT '',
+                    enabled BOOLEAN NOT NULL DEFAULT TRUE
+                )
+            """)
+            cur.execute(
+                "CREATE INDEX IF NOT EXISTS idx_agent_mcp_owner ON agent_mcp_servers(owner)"
             )
 
     @contextmanager

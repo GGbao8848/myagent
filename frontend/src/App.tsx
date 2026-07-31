@@ -29,7 +29,7 @@ import { SettingsView } from "./components/SettingsView";
 import { ApiDocsModal } from "./components/modals/ApiDocsModal";
 import LoginPage from "./components/LoginPage";
 import { isLoggedIn as hasAuthToken, getStoredUser, logout, startLogin, handleCallback } from "./auth";
-import { apiFetch, createSession, getSession, listSessions, deleteSession, streamChat, getSettings } from "./api";
+import { apiFetch, createSession, getSession, listSessions, deleteSession, streamChat, getSettings, listMcpServers, addMcpServer, deleteMcpServer, toggleMcpServer } from "./api";
 
 export default function App() {
   // --- Page Navigation State ---
@@ -149,10 +149,7 @@ export default function App() {
     return saved !== "false";
   });
 
-  const [mcpServers, setMcpServers] = useState<MCPServer[]>(() => {
-    const saved = localStorage.getItem("office_ai_mcp_servers");
-    return saved ? JSON.parse(saved) : initialMcpServers;
-  });
+  const [mcpServers, setMcpServers] = useState<MCPServer[]>([]);
 
   const [modelConfigs, setModelConfigs] = useState<ModelConfig[]>([]);
 
@@ -226,6 +223,28 @@ export default function App() {
         }
       } catch (e) {
         console.error("加载模型配置失败:", e);
+      }
+    })();
+  }, [isLoggedIn]);
+
+  // 登录后从后端加载 MCP 服务器（公共 + 当前用户私有）
+  useEffect(() => {
+    if (!hasAuthToken()) return;
+    (async () => {
+      try {
+        const list = await listMcpServers();
+        const mapped: MCPServer[] = list.map((m) => ({
+          id: m.id,
+          name: m.name,
+          type: m.type,
+          urlOrCommand: m.url || "",
+          status: m.connected ? "connected" : (m.enabled ? "disconnected" : "disconnected"),
+          tools: m.tools || [],
+          url: m.url,
+        }));
+        setMcpServers(mapped);
+      } catch (e) {
+        console.error("加载 MCP 服务器失败:", e);
       }
     })();
   }, [isLoggedIn]);
@@ -475,10 +494,6 @@ export default function App() {
   useEffect(() => {
     localStorage.setItem("office_ai_memory_enabled", String(isMemoryEnabled));
   }, [isMemoryEnabled]);
-
-  useEffect(() => {
-    localStorage.setItem("office_ai_mcp_servers", JSON.stringify(mcpServers));
-  }, [mcpServers]);
 
   useEffect(() => {
     localStorage.setItem("office_ai_schedule_tasks", JSON.stringify(scheduleTasks));

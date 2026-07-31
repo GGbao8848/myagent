@@ -124,11 +124,8 @@ export default function App() {
   }, []);
 
   const handleLogout = () => {
+    // logout() 会跳转 Keycloak 注销页，页面将被替换，无需额外 setState
     logout();
-    setIsLoggedIn(false);
-    setShowUserDropdown(false);
-    setAuthNotice("您已安全退出当前账号。");
-    setTimeout(() => setAuthNotice(null), 4000);
   };
 
   const [skills, setSkills] = useState<Skill[]>(() => {

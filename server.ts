@@ -7,7 +7,7 @@ import dotenv from "dotenv";
 dotenv.config();
 
 const app = express();
-const PORT = 3000;
+const PORT = 9003;
 
 app.use(express.json({ limit: "10mb" }));
 

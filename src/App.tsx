@@ -27,45 +27,8 @@ import { SchedulerView } from "./components/SchedulerView";
 import { McpView } from "./components/McpView";
 import { SettingsView } from "./components/SettingsView";
 import { ApiDocsModal } from "./components/modals/ApiDocsModal";
-
-const PRESET_USERS = [
-  {
-    name: "张三",
-    role: "高级 AI 架构师",
-    department: "研发中心 - 智能化组",
-    tonePreference: "professional",
-    formatPreference: "markdown",
-    email: "zhangsan@enterprise.ai",
-    avatarBg: "bg-indigo-600 text-white"
-  },
-  {
-    name: "李四",
-    role: "资深产品经理",
-    department: "产品创新部",
-    tonePreference: "friendly",
-    formatPreference: "markdown",
-    email: "lisi@enterprise.ai",
-    avatarBg: "bg-emerald-600 text-white"
-  },
-  {
-    name: "王五",
-    role: "商业数据分析师",
-    department: "商业智能部",
-    tonePreference: "concise",
-    formatPreference: "bullet",
-    email: "wangwu@enterprise.ai",
-    avatarBg: "bg-amber-600 text-white"
-  },
-  {
-    name: "赵六",
-    role: "运营总监",
-    department: "市场运营部",
-    tonePreference: "detailed",
-    formatPreference: "markdown",
-    email: "zhaoliu@enterprise.ai",
-    avatarBg: "bg-rose-600 text-white"
-  }
-];
+import LoginPage from "./components/LoginPage";
+import { isLoggedIn as hasAuthToken, getStoredUser, logout, startLogin, handleCallback } from "./auth";
 
 export default function App() {
   // --- Page Navigation State ---
@@ -118,102 +81,51 @@ export default function App() {
   });
 
   // --- Auth / Login / Logout States ---
-  const [isLoggedIn, setIsLoggedIn] = useState<boolean>(() => {
-    const saved = localStorage.getItem("office_ai_is_logged_in");
-    return saved !== "false";
-  });
+  const [isLoggedIn, setIsLoggedIn] = useState<boolean>(() => hasAuthToken());
   const [showLoginModal, setShowLoginModal] = useState<boolean>(false);
   const [showUserDropdown, setShowUserDropdown] = useState<boolean>(false);
-  const [loginTab, setLoginTab] = useState<"quick" | "password" | "phone">("quick");
-  const [loginFormName, setLoginFormName] = useState("");
-  const [loginFormRole, setLoginFormRole] = useState("");
-  const [loginFormDept, setLoginFormDept] = useState("");
-  const [loginFormPhone, setLoginFormPhone] = useState("");
-  const [loginFormPassword, setLoginFormPassword] = useState("");
-  const [loginFormCode, setLoginFormCode] = useState("");
-  const [loginError, setLoginError] = useState<string | null>(null);
   const [authNotice, setAuthNotice] = useState<string | null>(null);
-  const [smsCountdown, setSmsCountdown] = useState<number>(0);
 
+  // Keycloak 回调处理：页面加载时检测 ?code= 参数
+  const callbackProcessed = useRef(false);
   useEffect(() => {
-    if (smsCountdown > 0) {
-      const timer = setTimeout(() => setSmsCountdown(smsCountdown - 1), 1000);
-      return () => clearTimeout(timer);
+    const params = new URLSearchParams(window.location.search);
+    const code = params.get("code");
+    const state = params.get("state");
+
+    if (code && state && !callbackProcessed.current) {
+      callbackProcessed.current = true;  // 防止 StrictMode 双执行导致 code 失效
+      handleCallback(code, state)
+        .then(() => {
+          setIsLoggedIn(true);
+          // 用真实用户信息更新 profile
+          const user = getStoredUser();
+          if (user) {
+            setUserProfile((prev) => ({
+              ...prev,
+              name: user.name || user.username || "企业用户",
+              role: "团队成员",
+              department: "综合业务部",
+            }));
+          }
+          setAuthNotice(`欢迎回来，${getStoredUser()?.name || getStoredUser()?.username || "用户"}！`);
+          setTimeout(() => setAuthNotice(null), 4000);
+          // 清理 URL，去掉 code/state 参数
+          window.history.replaceState({}, document.title, window.location.pathname);
+        })
+        .catch((err) => {
+          console.error("登录回调失败:", err);
+          setAuthNotice("登录失败，请重试");
+          setTimeout(() => setAuthNotice(null), 4000);
+          logout();
+          setIsLoggedIn(false);
+        });
     }
-  }, [smsCountdown]);
-
-  const handleSendSmsCode = () => {
-    if (!loginFormPhone || loginFormPhone.length < 11) {
-      setLoginError("请输入有效的 11 位手机号码");
-      return;
-    }
-    setLoginError(null);
-    setSmsCountdown(60);
-    setLoginFormCode("888888");
-    setAuthNotice("验证码已发送（测试体验验证码：888888）");
-    setTimeout(() => setAuthNotice(null), 4000);
-  };
-
-  const handleLoginPreset = (preset: typeof PRESET_USERS[0]) => {
-    const newProfile: UserProfile = {
-      name: preset.name,
-      role: preset.role,
-      department: preset.department,
-      tonePreference: preset.tonePreference as any,
-      formatPreference: preset.formatPreference as any
-    };
-    setUserProfile(newProfile);
-    setIsLoggedIn(true);
-    localStorage.setItem("office_ai_is_logged_in", "true");
-    localStorage.setItem("office_ai_profile", JSON.stringify(newProfile));
-    setShowLoginModal(false);
-    setAuthNotice(`欢迎回来，${preset.name}（${preset.role}）！账号已成功切换。`);
-    setTimeout(() => setAuthNotice(null), 4000);
-  };
-
-  const handleLoginSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    setLoginError(null);
-
-    if (loginTab === "password") {
-      if (!loginFormName.trim()) {
-        setLoginError("请输入用户名或账号");
-        return;
-      }
-    } else if (loginTab === "phone") {
-      if (!loginFormPhone.trim() || loginFormPhone.length < 11) {
-        setLoginError("请输入有效的 11 位手机号码");
-        return;
-      }
-      if (!loginFormCode.trim()) {
-        setLoginError("请输入验证码");
-        return;
-      }
-    }
-
-    const name = loginFormName.trim() || (loginTab === "phone" ? `手机用户_${loginFormPhone.slice(-4)}` : "企业用户");
-    const role = loginFormRole.trim() || "团队成员";
-    const dept = loginFormDept.trim() || "综合业务部";
-
-    const newProfile: UserProfile = {
-      ...userProfile,
-      name,
-      role,
-      department: dept
-    };
-
-    setUserProfile(newProfile);
-    setIsLoggedIn(true);
-    localStorage.setItem("office_ai_is_logged_in", "true");
-    localStorage.setItem("office_ai_profile", JSON.stringify(newProfile));
-    setShowLoginModal(false);
-    setAuthNotice(`登录成功！当前账号：${name} (${role})`);
-    setTimeout(() => setAuthNotice(null), 4000);
-  };
+  }, []);
 
   const handleLogout = () => {
+    logout();
     setIsLoggedIn(false);
-    localStorage.setItem("office_ai_is_logged_in", "false");
     setShowUserDropdown(false);
     setAuthNotice("您已安全退出当前账号。");
     setTimeout(() => setAuthNotice(null), 4000);
@@ -1616,9 +1528,14 @@ export default function App() {
     }
   };
 
+  // 未登录 → 显示登录页
+  if (!isLoggedIn) {
+    return <LoginPage />;
+  }
+
   return (
     <div className="flex h-screen w-screen bg-[#f8fafc] overflow-hidden text-slate-800 font-sans">
-      
+
       {/* ========================================================
           UNIFIED SIDEBAR (Navigation, Session List & Profile)
           ======================================================== */}
@@ -1824,7 +1741,7 @@ export default function App() {
                               <span>个人资料与系统设置</span>
                             </button>
                             <button 
-                              onClick={() => { setShowUserDropdown(false); setShowLoginModal(true); }}
+                              onClick={() => { setShowUserDropdown(false); startLogin(); }}
                               className="w-full flex items-center gap-2 px-2.5 py-1.5 text-slate-700 hover:bg-slate-100 rounded-lg transition-colors text-left cursor-pointer"
                             >
                               <RefreshCw className="w-3.5 h-3.5 text-indigo-500" />
@@ -1841,7 +1758,7 @@ export default function App() {
                           </>
                         ) : (
                           <button 
-                            onClick={() => { setShowUserDropdown(false); setShowLoginModal(true); }}
+                            onClick={() => { setShowUserDropdown(false); startLogin(); }}
                             className="w-full flex items-center justify-center gap-2 px-3 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg transition-colors text-center font-medium shadow-xs cursor-pointer"
                           >
                             <LogIn className="w-3.5 h-3.5" />
@@ -1887,7 +1804,7 @@ export default function App() {
                       </button>
                     ) : (
                       <button 
-                        onClick={() => setShowLoginModal(true)}
+                        onClick={() => startLogin()}
                         title="点击登录"
                         className="px-2 py-1 bg-indigo-600 hover:bg-indigo-700 text-white text-[10px] font-medium rounded-md transition-colors cursor-pointer"
                       >
@@ -2754,258 +2671,52 @@ export default function App() {
             MODAL 1.8: USER LOGIN & ACCOUNT SWITCH MODAL
             ======================================================== */}
         {showLoginModal && (
-          <motion.div 
+          <motion.div
             key="modal-login"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             className="fixed inset-0 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4 z-50"
           >
-            <motion.div 
-              initial={{ scale: 0.95, y: 15 }}
+            <motion.div
+              initial={{ scale: 0.95, y: 10 }}
               animate={{ scale: 1, y: 0 }}
-              exit={{ scale: 0.95, y: 15 }}
-              className="bg-white border border-slate-200 rounded-2xl p-6 shadow-2xl max-w-lg w-full relative overflow-hidden"
+              className="relative bg-white rounded-3xl shadow-2xl w-full max-w-sm overflow-hidden"
             >
-              {/* Top Banner Accent */}
               <div className="absolute top-0 left-0 right-0 h-1.5 bg-gradient-to-r from-indigo-500 via-purple-500 to-emerald-500"></div>
 
-              <div className="flex justify-between items-start border-b border-slate-100 pb-4 mt-1">
-                <div>
+              <div className="p-7">
+                <div className="flex items-center justify-between mb-5">
                   <div className="flex items-center gap-2">
                     <div className="p-1.5 bg-indigo-50 text-indigo-600 rounded-lg">
-                      <UserCheck className="w-5 h-5" />
+                      <LogIn className="w-5 h-5" />
                     </div>
-                    <h3 className="font-display font-semibold text-base text-slate-900">
-                      {isLoggedIn ? "切换账号 / 身份登录" : "用户登录 / 注册认证"}
-                    </h3>
+                    <h3 className="font-display font-semibold text-base text-slate-900">企业账号登录</h3>
                   </div>
-                  <p className="text-xs text-slate-500 mt-1">
-                    登录后将自动同步个人认知偏好、自定义技能包与 MCP 工具配置
-                  </p>
+                  <button
+                    onClick={() => setShowLoginModal(false)}
+                    className="p-1 hover:bg-slate-100 rounded-lg text-slate-400 hover:text-slate-600 transition-colors cursor-pointer"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
                 </div>
-                <button 
-                  onClick={() => { setShowLoginModal(false); setLoginError(null); }} 
-                  className="p-1 hover:bg-slate-100 rounded-lg text-slate-400 hover:text-slate-600 transition-colors cursor-pointer"
+
+                <p className="text-xs text-slate-500 mb-5">
+                  使用企业统一身份认证登录，登录后将自动同步个人画像、技能与记忆。
+                </p>
+
+                <button
+                  onClick={() => { startLogin(); }}
+                  className="w-full py-3 bg-gradient-to-r from-indigo-600 to-emerald-600 hover:from-indigo-500 hover:to-emerald-500 text-white font-semibold rounded-2xl transition-all shadow-lg shadow-indigo-500/20 flex items-center justify-center gap-2 cursor-pointer"
                 >
-                  <X className="w-4 h-4" />
+                  <LogIn className="w-4 h-4" />
+                  跳转 Keycloak 登录
                 </button>
-              </div>
-
-              {/* Auth Navigation Tabs */}
-              <div className="flex bg-slate-100/80 p-1 rounded-xl mt-4 text-xs font-medium text-slate-600">
-                <button 
-                  type="button"
-                  onClick={() => { setLoginTab("quick"); setLoginError(null); }}
-                  className={`flex-1 py-1.5 rounded-lg transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
-                    loginTab === "quick" ? "bg-white text-indigo-600 font-semibold shadow-xs" : "hover:text-slate-900"
-                  }`}
-                >
-                  <Sparkles className="w-3.5 h-3.5 text-indigo-500" />
-                  <span>一键预设身份</span>
-                </button>
-                <button 
-                  type="button"
-                  onClick={() => { setLoginTab("password"); setLoginError(null); }}
-                  className={`flex-1 py-1.5 rounded-lg transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
-                    loginTab === "password" ? "bg-white text-indigo-600 font-semibold shadow-xs" : "hover:text-slate-900"
-                  }`}
-                >
-                  <Key className="w-3.5 h-3.5 text-slate-500" />
-                  <span>账号密码登录</span>
-                </button>
-                <button 
-                  type="button"
-                  onClick={() => { setLoginTab("phone"); setLoginError(null); }}
-                  className={`flex-1 py-1.5 rounded-lg transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
-                    loginTab === "phone" ? "bg-white text-indigo-600 font-semibold shadow-xs" : "hover:text-slate-900"
-                  }`}
-                >
-                  <Smartphone className="w-3.5 h-3.5 text-slate-500" />
-                  <span>手机验证码</span>
-                </button>
-              </div>
-
-              {/* Tab Content */}
-              <div className="mt-4">
-                {loginTab === "quick" && (
-                  <div className="space-y-3">
-                    <p className="text-[11px] text-slate-500 leading-relaxed">
-                      点击下方适合的演示角色一键快速登录或切换，体验针对不同角色的差异化 AI 决策支持：
-                    </p>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 max-h-64 overflow-y-auto pr-1">
-                      {PRESET_USERS.map((preset) => (
-                        <div 
-                          key={preset.name}
-                          onClick={() => handleLoginPreset(preset)}
-                          className={`p-3 border rounded-xl cursor-pointer transition-all hover:border-indigo-300 hover:shadow-xs group ${
-                            userProfile.name === preset.name && isLoggedIn
-                              ? "border-indigo-500 bg-indigo-50/40 ring-1 ring-indigo-500"
-                              : "border-slate-200 bg-slate-50/50 hover:bg-white"
-                          }`}
-                        >
-                          <div className="flex items-center gap-2.5 mb-2">
-                            <div className={`w-8 h-8 rounded-full ${preset.avatarBg} flex items-center justify-center font-bold text-xs shadow-xs`}>
-                              {preset.name.slice(0, 1)}
-                            </div>
-                            <div>
-                              <div className="font-semibold text-xs text-slate-800 flex items-center gap-1">
-                                <span>{preset.name}</span>
-                                {userProfile.name === preset.name && isLoggedIn && (
-                                  <span className="text-[9px] bg-indigo-600 text-white px-1 rounded font-normal">当前</span>
-                                )}
-                              </div>
-                              <div className="text-[10px] text-slate-500 font-mono truncate">{preset.role}</div>
-                            </div>
-                          </div>
-                          <div className="text-[10px] text-slate-400 border-t border-slate-100 pt-1.5 flex items-center justify-between">
-                            <span>{preset.department}</span>
-                            <span className="text-indigo-600 group-hover:translate-x-0.5 transition-transform font-medium">登录 →</span>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                {loginTab === "password" && (
-                  <form onSubmit={handleLoginSubmit} className="space-y-3.5 text-xs">
-                    <div>
-                      <label className="block text-[11px] font-medium text-slate-600 mb-1">用户名 / 企业邮箱</label>
-                      <input 
-                        type="text" 
-                        required
-                        placeholder="例如：zhangsan@enterprise.ai 或 张三"
-                        value={loginFormName}
-                        onChange={(e) => setLoginFormName(e.target.value)}
-                        className="w-full border border-slate-200 rounded-xl px-3 py-2 text-slate-800 bg-slate-50/50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="block text-[11px] font-medium text-slate-600 mb-1">登录密码</label>
-                      <input 
-                        type="password" 
-                        required
-                        placeholder="••••••••"
-                        value={loginFormPassword}
-                        onChange={(e) => setLoginFormPassword(e.target.value)}
-                        className="w-full border border-slate-200 rounded-xl px-3 py-2 text-slate-800 bg-slate-50/50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
-                      />
-                    </div>
-
-                    <div className="grid grid-cols-2 gap-2.5">
-                      <div>
-                        <label className="block text-[11px] font-medium text-slate-600 mb-1">职级角色 (可选)</label>
-                        <input 
-                          type="text" 
-                          placeholder="例如：高级架构师"
-                          value={loginFormRole}
-                          onChange={(e) => setLoginFormRole(e.target.value)}
-                          className="w-full border border-slate-200 rounded-xl px-3 py-2 text-slate-800 bg-slate-50/50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-[11px] font-medium text-slate-600 mb-1">归属部门 (可选)</label>
-                        <input 
-                          type="text" 
-                          placeholder="例如：研发中心"
-                          value={loginFormDept}
-                          onChange={(e) => setLoginFormDept(e.target.value)}
-                          className="w-full border border-slate-200 rounded-xl px-3 py-2 text-slate-800 bg-slate-50/50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
-                        />
-                      </div>
-                    </div>
-
-                    {loginError && (
-                      <div className="p-2.5 bg-rose-50 border border-rose-100 rounded-xl text-[11px] text-rose-600 flex items-center gap-2">
-                        <AlertTriangle className="w-4 h-4 shrink-0 text-rose-500" />
-                        <span>{loginError}</span>
-                      </div>
-                    )}
-
-                    <div className="flex justify-end gap-2 pt-2 border-t border-slate-100">
-                      <button 
-                        type="button" 
-                        onClick={() => setShowLoginModal(false)}
-                        className="px-4 py-2 border border-slate-200 rounded-xl font-medium text-slate-600 hover:bg-slate-50 cursor-pointer"
-                      >
-                        取消
-                      </button>
-                      <button 
-                        type="submit"
-                        className="px-5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold rounded-xl shadow-xs transition-all cursor-pointer"
-                      >
-                        登录账号
-                      </button>
-                    </div>
-                  </form>
-                )}
-
-                {loginTab === "phone" && (
-                  <form onSubmit={handleLoginSubmit} className="space-y-3.5 text-xs">
-                    <div>
-                      <label className="block text-[11px] font-medium text-slate-600 mb-1">手机号码</label>
-                      <div className="flex gap-2">
-                        <input 
-                          type="tel" 
-                          required
-                          placeholder="请输入 11 位手机号码"
-                          value={loginFormPhone}
-                          onChange={(e) => setLoginFormPhone(e.target.value)}
-                          className="flex-1 border border-slate-200 rounded-xl px-3 py-2 text-slate-800 bg-slate-50/50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
-                        />
-                        <button 
-                          type="button"
-                          disabled={smsCountdown > 0}
-                          onClick={handleSendSmsCode}
-                          className="px-3.5 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-medium rounded-xl text-[11px] border border-slate-200 transition-colors disabled:opacity-50 cursor-pointer shrink-0"
-                        >
-                          {smsCountdown > 0 ? `${smsCountdown}s 后重试` : "获取验证码"}
-                        </button>
-                      </div>
-                    </div>
-
-                    <div>
-                      <label className="block text-[11px] font-medium text-slate-600 mb-1">短信验证码</label>
-                      <input 
-                        type="text" 
-                        required
-                        placeholder="请输入 6 位数字验证码"
-                        value={loginFormCode}
-                        onChange={(e) => setLoginFormCode(e.target.value)}
-                        className="w-full border border-slate-200 rounded-xl px-3 py-2 text-slate-800 bg-slate-50/50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 font-mono tracking-wider"
-                      />
-                    </div>
-
-                    {loginError && (
-                      <div className="p-2.5 bg-rose-50 border border-rose-100 rounded-xl text-[11px] text-rose-600 flex items-center gap-2">
-                        <AlertTriangle className="w-4 h-4 shrink-0 text-rose-500" />
-                        <span>{loginError}</span>
-                      </div>
-                    )}
-
-                    <div className="flex justify-end gap-2 pt-2 border-t border-slate-100">
-                      <button 
-                        type="button" 
-                        onClick={() => setShowLoginModal(false)}
-                        className="px-4 py-2 border border-slate-200 rounded-xl font-medium text-slate-600 hover:bg-slate-50 cursor-pointer"
-                      >
-                        取消
-                      </button>
-                      <button 
-                        type="submit"
-                        className="px-5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold rounded-xl shadow-xs transition-all cursor-pointer"
-                      >
-                        验证并登录
-                      </button>
-                    </div>
-                  </form>
-                )}
               </div>
             </motion.div>
           </motion.div>
         )}
+
 
       </AnimatePresence>
 

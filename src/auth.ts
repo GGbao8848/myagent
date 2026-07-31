@@ -46,6 +46,16 @@ export function getStoredUser(): any | null {
 }
 
 export function logout(): void {
+  clearTokens();
+  // 注销 Keycloak session，才能真正换账号
+  const logoutUrl =
+    `${KEYCLOAK_URL}/realms/${REALM}/protocol/openid-connect/logout?` +
+    `client_id=${CLIENT_ID}&` +
+    `post_logout_redirect_uri=${encodeURIComponent(REDIRECT_URI.replace("/callback", ""))}`;
+  window.location.href = logoutUrl;
+}
+
+function clearTokens(): void {
   localStorage.removeItem(TOKEN_KEY);
   localStorage.removeItem(REFRESH_KEY);
   localStorage.removeItem(USER_KEY);

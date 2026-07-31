@@ -1530,9 +1530,10 @@ export default function App() {
     }
   };
 
-  // 未登录 → 显示登录页
+  // 未登录 → 自动跳 Keycloak，不显示中间页面
   if (!isLoggedIn) {
-    return <LoginPage />;
+    startLogin();
+    return null;
   }
 
   return (

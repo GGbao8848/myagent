@@ -1,19 +1,21 @@
-"""SQLite 会话 & 消息持久化。
+"""PostgreSQL 会话 & 消息持久化。
 
-零外部依赖，仅使用 Python 内置 sqlite3 模块。
-WAL 模式，支持并发读；外键级联删除。
+使用 psycopg2 连接平台的 PostgreSQL（br_platform 库），独立表 agent_sessions / agent_messages。
+保留原有接口结构（create_session / list_sessions / save_message 等），调用方无需改动。
 """
 
 from __future__ import annotations
 
 import json
-import os
-import sqlite3
 import uuid
 from contextlib import contextmanager
 from datetime import datetime, timezone
-from pathlib import Path
 from typing import Any
+
+import psycopg2
+from psycopg2.extras import RealDictCursor
+
+from src.config import PG_DATABASE, PG_HOST, PG_PASSWORD, PG_PORT, PG_USER
 
 
 def _now() -> str:
@@ -22,20 +24,18 @@ def _now() -> str:
 
 
 class Database:
-    """会话 & 消息 SQLite 持久化。
+    """会话 & 消息 PostgreSQL 持久化。
 
     用法:
-        db = Database("data/br-agent.db")
+        db = Database()
         sid = db.create_session()
         sessions = db.list_sessions()
         db.save_message(sid, "user", "你好")
         db.delete_session(sid)
     """
 
-    def __init__(self, db_path: str | Path) -> None:
-        self._path = Path(db_path)
-        self._path.parent.mkdir(parents=True, exist_ok=True)
-        # 首次连接即建表
+    def __init__(self, db_path=None) -> None:
+        # db_path 兼容旧接口（SQLite 迁移），实际使用 PG 配置
         with self._conn() as conn:
             self._init_schema(conn)
 
@@ -49,7 +49,7 @@ class Database:
         now = _now()
         with self._conn() as conn:
             conn.execute(
-                "INSERT INTO sessions (id, title, user_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?)",
+                "INSERT INTO agent_sessions (id, title, user_id, created_at, updated_at) VALUES (%s, %s, %s, %s, %s)",
                 (sid, title, user_id, now, now),
             )
         return sid
@@ -59,11 +59,11 @@ class Database:
         with self._conn() as conn:
             rows = conn.execute(
                 """SELECT s.id, s.title, s.message_count, s.created_at, s.updated_at,
-                          (SELECT SUBSTR(m.content, 1, 100) FROM messages m
+                          (SELECT LEFT(m.content, 100) FROM agent_messages m
                            WHERE m.session_id = s.id ORDER BY m.created_at DESC LIMIT 1) AS last_message
-                   FROM sessions s
-                   WHERE s.user_id = ?
-                   ORDER BY s.updated_at DESC LIMIT ?""",
+                   FROM agent_sessions s
+                   WHERE s.user_id = %s
+                   ORDER BY s.updated_at DESC LIMIT %s""",
                 (user_id, limit),
             ).fetchall()
         return [dict(r) for r in rows]
@@ -72,14 +72,14 @@ class Database:
         """获取单个会话详情（含消息列表），校验用户归属。"""
         with self._conn() as conn:
             row = conn.execute(
-                "SELECT id, title, message_count, created_at, updated_at FROM sessions WHERE id = ? AND user_id = ?",
+                "SELECT id, title, message_count, created_at, updated_at FROM agent_sessions WHERE id = %s AND user_id = %s",
                 (session_id, user_id),
             ).fetchone()
             if row is None:
                 return None
             result = dict(row)
             msgs = conn.execute(
-                "SELECT id, role, content, metadata, created_at FROM messages WHERE session_id = ? ORDER BY created_at ASC",
+                "SELECT id, role, content, metadata, created_at FROM agent_messages WHERE session_id = %s ORDER BY created_at ASC",
                 (session_id,),
             ).fetchall()
             result["messages"] = []
@@ -99,7 +99,7 @@ class Database:
         """更新会话标题（校验用户归属）。"""
         with self._conn() as conn:
             cur = conn.execute(
-                "UPDATE sessions SET title = ?, updated_at = ? WHERE id = ? AND user_id = ?",
+                "UPDATE agent_sessions SET title = %s, updated_at = %s WHERE id = %s AND user_id = %s",
                 (title, _now(), session_id, user_id),
             )
             return cur.rowcount > 0
@@ -107,9 +107,8 @@ class Database:
     def delete_session(self, session_id: str, user_id: str = "") -> bool:
         """删除会话及其所有消息（CASCADE，校验用户归属）。"""
         with self._conn() as conn:
-            conn.execute("PRAGMA foreign_keys = ON")
             cur = conn.execute(
-                "DELETE FROM sessions WHERE id = ? AND user_id = ?",
+                "DELETE FROM agent_sessions WHERE id = %s AND user_id = %s",
                 (session_id, user_id),
             )
             return cur.rowcount > 0
@@ -118,7 +117,7 @@ class Database:
         """检查会话是否存在（校验用户归属）。"""
         with self._conn() as conn:
             row = conn.execute(
-                "SELECT 1 FROM sessions WHERE id = ? AND user_id = ?",
+                "SELECT 1 FROM agent_sessions WHERE id = %s AND user_id = %s",
                 (session_id, user_id),
             ).fetchone()
             return row is not None
@@ -134,20 +133,21 @@ class Database:
         meta_json = json.dumps(metadata or {}, ensure_ascii=False)
         with self._conn() as conn:
             cur = conn.execute(
-                "INSERT INTO messages (session_id, role, content, metadata, created_at) VALUES (?, ?, ?, ?, ?)",
+                "INSERT INTO agent_messages (session_id, role, content, metadata, created_at) VALUES (%s, %s, %s, %s, %s) RETURNING id",
                 (session_id, role, content, meta_json, _now()),
             )
+            mid = cur.fetchone()["id"]
             conn.execute(
-                "UPDATE sessions SET message_count = message_count + 1, updated_at = ? WHERE id = ?",
+                "UPDATE agent_sessions SET message_count = message_count + 1, updated_at = %s WHERE id = %s",
                 (_now(), session_id),
             )
-            return cur.lastrowid
+            return mid
 
     def get_messages(self, session_id: str) -> list[dict[str, str]]:
         """获取会话的所有消息，返回 langchain 兼容格式（含 metadata）。"""
         with self._conn() as conn:
             rows = conn.execute(
-                "SELECT role, content, metadata FROM messages WHERE session_id = ? ORDER BY created_at ASC",
+                "SELECT role, content, metadata FROM agent_messages WHERE session_id = %s ORDER BY created_at ASC",
                 (session_id,),
             ).fetchall()
         result = []
@@ -165,7 +165,7 @@ class Database:
         """获取会话的消息数量。"""
         with self._conn() as conn:
             row = conn.execute(
-                "SELECT message_count FROM sessions WHERE id = ?", (session_id,)
+                "SELECT message_count FROM agent_sessions WHERE id = %s", (session_id,)
             ).fetchone()
             return row["message_count"] if row else 0
 
@@ -173,54 +173,51 @@ class Database:
     # 内部
     # ------------------------------------------------------------------
 
-    def _init_schema(self, conn: sqlite3.Connection) -> None:
-        """创建数据库表结构，含向前兼容迁移。"""
-        conn.execute("PRAGMA journal_mode=WAL")
-        conn.execute("PRAGMA foreign_keys = ON")
-        conn.executescript("""
-            CREATE TABLE IF NOT EXISTS sessions (
-                id            TEXT PRIMARY KEY,
-                title         TEXT NOT NULL DEFAULT '新对话',
-                user_id       TEXT NOT NULL DEFAULT '',
-                created_at    TEXT NOT NULL,
-                updated_at    TEXT NOT NULL,
-                message_count INTEGER NOT NULL DEFAULT 0,
-                metadata      TEXT NOT NULL DEFAULT '{}'
-            );
-
-            CREATE TABLE IF NOT EXISTS messages (
-                id         INTEGER PRIMARY KEY AUTOINCREMENT,
-                session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
-                role       TEXT NOT NULL CHECK(role IN ('user', 'assistant', 'system', 'tool')),
-                content    TEXT NOT NULL,
-                created_at TEXT NOT NULL,
-                tokens     INTEGER NOT NULL DEFAULT 0
-            );
-
-            CREATE INDEX IF NOT EXISTS idx_messages_session
-                ON messages(session_id, created_at);
-
-            CREATE INDEX IF NOT EXISTS idx_sessions_updated
-                ON sessions(updated_at DESC);
-        """)
-        # 向前兼容：已有 DB 可能缺少 metadata 列
-        try:
-            conn.execute("ALTER TABLE messages ADD COLUMN metadata TEXT NOT NULL DEFAULT '{}'")
-        except sqlite3.OperationalError:
-            pass  # 列已存在
-        # 向前兼容：已有 DB 可能缺少 user_id 列
-        try:
-            conn.execute("ALTER TABLE sessions ADD COLUMN user_id TEXT NOT NULL DEFAULT ''")
-        except sqlite3.OperationalError:
-            pass  # 列已存在
+    def _init_schema(self, conn) -> None:
+        """创建数据库表结构。"""
+        with conn.cursor() as cur:
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS agent_sessions (
+                    id            TEXT PRIMARY KEY,
+                    title         TEXT NOT NULL DEFAULT '新对话',
+                    user_id       TEXT NOT NULL DEFAULT '',
+                    created_at    TEXT NOT NULL,
+                    updated_at    TEXT NOT NULL,
+                    message_count INTEGER NOT NULL DEFAULT 0,
+                    metadata      TEXT NOT NULL DEFAULT '{}'
+                )
+            """)
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS agent_messages (
+                    id         SERIAL PRIMARY KEY,
+                    session_id TEXT NOT NULL REFERENCES agent_sessions(id) ON DELETE CASCADE,
+                    role       TEXT NOT NULL CHECK(role IN ('user', 'assistant', 'system', 'tool')),
+                    content    TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    tokens     INTEGER NOT NULL DEFAULT 0,
+                    metadata   TEXT NOT NULL DEFAULT '{}'
+                )
+            """)
+            cur.execute(
+                "CREATE INDEX IF NOT EXISTS idx_agent_messages_session ON agent_messages(session_id, created_at)"
+            )
+            cur.execute(
+                "CREATE INDEX IF NOT EXISTS idx_agent_sessions_updated ON agent_sessions(updated_at DESC)"
+            )
 
     @contextmanager
     def _conn(self):
-        """获取数据库连接，自动提交/关闭。"""
-        conn = sqlite3.connect(str(self._path))
-        conn.row_factory = sqlite3.Row
+        """获取 PostgreSQL 连接，自动提交/关闭。"""
+        conn = psycopg2.connect(
+            host=PG_HOST,
+            port=PG_PORT,
+            user=PG_USER,
+            password=PG_PASSWORD,
+            dbname=PG_DATABASE,
+            cursor_factory=RealDictCursor,
+        )
         try:
-            yield conn
+            yield _ConnProxy(conn)
             conn.commit()
         except Exception:
             conn.rollback()
@@ -229,5 +226,20 @@ class Database:
             conn.close()
 
     def close(self) -> None:
-        """显式关闭（sqlite3 连接在 _conn contextmanager 中已自动关闭）。"""
+        """兼容接口：psycopg2 连接在 _conn contextmanager 中已自动关闭。"""
         pass
+
+
+class _ConnProxy:
+    """让 psycopg2 连接支持 conn.execute(...) 语法（自动创建 cursor）。"""
+
+    def __init__(self, conn):
+        self._conn = conn
+
+    def cursor(self, *args, **kwargs):
+        return self._conn.cursor(*args, **kwargs)
+
+    def execute(self, sql, params=None):
+        cur = self._conn.cursor()
+        cur.execute(sql, params)
+        return cur

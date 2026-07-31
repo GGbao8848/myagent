@@ -42,3 +42,10 @@ from src.config.auth import (  # noqa: E402, F401
     KEYCLOAK_CLIENT_ID,
     KEYCLOAK_CLIENT_SECRET,
 )
+from src.config.database import (  # noqa: E402, F401
+    PG_HOST,
+    PG_PORT,
+    PG_USER,
+    PG_PASSWORD,
+    PG_DATABASE,
+)

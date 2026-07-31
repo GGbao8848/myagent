@@ -1,0 +1,12 @@
+deepagents>=0.6.10
+fastapi>=0.115.0
+langchain-openai>=0.3.0
+mcp>=1.0.0
+psutil>=5.9.0
+pycryptodome>=3.20.0
+python-dotenv>=1.0.0
+tiktoken>=0.7.0
+python-multipart>=0.0.32
+pyyaml>=6.0
+requests>=2.31.0
+uvicorn>=0.34.0

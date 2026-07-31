@@ -4,6 +4,24 @@
 
 ---
 
+## 项目结构
+
+```
+BR-Agent/
+├── frontend/          # 前端（React 19 + Vite + Tailwind + Express dev server）
+│   ├── src/           # React 源码
+│   ├── server.ts      # Express 开发服务器（含 /api 代理与 JWT 校验）
+│   └── auth.ts        # 后端 JWT 校验中间件（Keycloak JWKS）
+└── backend/           # Python Agent 内核（deepagents + FastAPI）
+    ├── src/           # 核心源码（agent/api/mcp/memory/sandbox...）
+    ├── skills/        # 技能包
+    └── main.py
+```
+
+前端通过 Keycloak OIDC 登录（与 BR Platform 统一 SSO），后端验证 JWT。
+
+---
+
 ## 目录
 - [1. 整体架构与数据流图](#1-整体架构与数据流图)
 - [2. 核心流式传输协议 (WebSocket & SSE Token 逐字返回)](#2-核心流式传输协议-websocket--sse-token-逐字返回)

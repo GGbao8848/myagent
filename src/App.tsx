@@ -1532,7 +1532,6 @@ export default function App() {
 
   // 未登录 → 自动跳 Keycloak，不显示中间页面
   if (!isLoggedIn) {
-    startLogin();
     return null;
   }
 

@@ -29,6 +29,7 @@ import { SettingsView } from "./components/SettingsView";
 import { ApiDocsModal } from "./components/modals/ApiDocsModal";
 import LoginPage from "./components/LoginPage";
 import { isLoggedIn as hasAuthToken, getStoredUser, logout, startLogin, handleCallback } from "./auth";
+import { apiFetch } from "./api";
 
 export default function App() {
   // --- Page Navigation State ---
@@ -446,7 +447,7 @@ export default function App() {
 
   // Check API health status on load
   useEffect(() => {
-    fetch("/api/health")
+    apiFetch("/api/health")
       .then(res => res.json())
       .then(data => setApiStatus(data))
       .catch(err => console.error("Error fetching API health:", err));
@@ -667,7 +668,7 @@ export default function App() {
 
     try {
       // Send API request
-      const response = await fetch("/api/chat", {
+      const response = await apiFetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -807,7 +808,7 @@ export default function App() {
         if (p >= 100) {
           clearInterval(interval);
           // Call API
-          fetch("/api/skills/upload", {
+          apiFetch("/api/skills/upload", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ fileName, fileSize: "240KB" })
@@ -1393,7 +1394,7 @@ export default function App() {
     setMcpServers(prev => prev.map(m => m.id === id ? { ...m, status: "connecting" } : m));
 
     try {
-      const response = await fetch("/api/mcp/test", {
+      const response = await apiFetch("/api/mcp/test", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ serverId: id, serverName: name })
@@ -1425,7 +1426,7 @@ export default function App() {
     setTestingModelId(config.id);
     
     try {
-      const response = await fetch("/api/models/test", {
+      const response = await apiFetch("/api/models/test", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

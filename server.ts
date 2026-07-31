@@ -3,6 +3,7 @@ import path from "path";
 import { createServer as createViteServer } from "vite";
 import { GoogleGenAI } from "@google/genai";
 import dotenv from "dotenv";
+import { authenticate } from "./auth";
 
 dotenv.config();
 
@@ -31,7 +32,7 @@ function getGeminiClient(): GoogleGenAI {
   return aiClient;
 }
 
-// 1. Health check and Status API
+// 1. Health check and Status API（无需登录）
 app.get("/api/health", (req, res) => {
   res.json({
     status: "ok",
@@ -41,7 +42,7 @@ app.get("/api/health", (req, res) => {
 });
 
 // 2. Chat API supporting system context injection (memories, profile, active skills, mcp)
-app.post("/api/chat", async (req, res) => {
+app.post("/api/chat", authenticate, async (req, res) => {
   try {
     const { messages, profile, memories, skills, mcpServers, activeModel } = req.body;
 
@@ -50,13 +51,16 @@ app.post("/api/chat", async (req, res) => {
     }
 
     // Build rich corporate context instructions
-    const userProfileStr = profile 
-      ? `User Name: ${profile.name || "Default User"}
+    // 优先使用 JWT 里的真实登录用户身份
+    const authUser = req.user;
+    const userName = authUser?.username || profile?.name || "Default User";
+    const userProfileStr = profile
+      ? `User Name: ${userName}
 Role: ${profile.role || "Employee"}
 Department: ${profile.department || "Enterprise Administration"}
 Preferred Tone: ${profile.tonePreference || "professional"}
 Preferred Format: ${profile.formatPreference || "markdown"}`
-      : "User Name: Employee\nRole: Business Analyst";
+      : `User Name: ${userName}\nRole: Business Analyst`;
 
     const memoriesStr = (memories && memories.length > 0)
       ? memories.map((m: any) => `- [${m.category}] ${m.content}`).join("\n")
@@ -249,7 +253,7 @@ ${mcpStr}
 });
 
 // 3. Mock Skills Upload API
-app.post("/api/skills/upload", (req, res) => {
+app.post("/api/skills/upload", authenticate, (req, res) => {
   const { fileName, fileSize } = req.body;
   if (!fileName) {
     return res.status(400).json({ error: "No package selected" });
@@ -280,7 +284,7 @@ app.post("/api/skills/upload", (req, res) => {
 });
 
 // 4. Mock MCP Test API
-app.post("/api/mcp/test", (req, res) => {
+app.post("/api/mcp/test", authenticate, (req, res) => {
   const { serverId, serverName } = req.body;
   if (!serverId) {
     return res.status(400).json({ error: "Server ID is required" });
@@ -334,7 +338,7 @@ app.post("/api/mcp/test", (req, res) => {
 });
 
 // 5. LLM Model Gateway Test API
-app.post("/api/models/test", (req, res) => {
+app.post("/api/models/test", authenticate, (req, res) => {
   const { modelId, modelName, apiKey, baseUrl } = req.body;
   if (!modelId) {
     return res.status(400).json({ error: "Model ID is required" });

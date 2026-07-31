@@ -43,35 +43,37 @@ class Database:
     # 会话 CRUD
     # ------------------------------------------------------------------
 
-    def create_session(self, title: str = "新对话") -> str:
+    def create_session(self, title: str = "新对话", user_id: str = "") -> str:
         """创建新会话，返回 session_id。"""
         sid = uuid.uuid4().hex[:16]
         now = _now()
         with self._conn() as conn:
             conn.execute(
-                "INSERT INTO sessions (id, title, created_at, updated_at) VALUES (?, ?, ?, ?)",
-                (sid, title, now, now),
+                "INSERT INTO sessions (id, title, user_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?)",
+                (sid, title, user_id, now, now),
             )
         return sid
 
-    def list_sessions(self, limit: int = 50) -> list[dict[str, Any]]:
-        """列出最近的会话，返回摘要列表。"""
+    def list_sessions(self, user_id: str = "", limit: int = 50) -> list[dict[str, Any]]:
+        """列出当前用户的最近会话，返回摘要列表。"""
         with self._conn() as conn:
             rows = conn.execute(
                 """SELECT s.id, s.title, s.message_count, s.created_at, s.updated_at,
                           (SELECT SUBSTR(m.content, 1, 100) FROM messages m
                            WHERE m.session_id = s.id ORDER BY m.created_at DESC LIMIT 1) AS last_message
-                   FROM sessions s ORDER BY s.updated_at DESC LIMIT ?""",
-                (limit,),
+                   FROM sessions s
+                   WHERE s.user_id = ?
+                   ORDER BY s.updated_at DESC LIMIT ?""",
+                (user_id, limit),
             ).fetchall()
         return [dict(r) for r in rows]
 
-    def get_session(self, session_id: str) -> dict[str, Any] | None:
-        """获取单个会话详情（含消息列表）。"""
+    def get_session(self, session_id: str, user_id: str = "") -> dict[str, Any] | None:
+        """获取单个会话详情（含消息列表），校验用户归属。"""
         with self._conn() as conn:
             row = conn.execute(
-                "SELECT id, title, message_count, created_at, updated_at FROM sessions WHERE id = ?",
-                (session_id,),
+                "SELECT id, title, message_count, created_at, updated_at FROM sessions WHERE id = ? AND user_id = ?",
+                (session_id, user_id),
             ).fetchone()
             if row is None:
                 return None
@@ -93,27 +95,31 @@ class Database:
                 result["messages"].append(msg)
             return result
 
-    def update_session(self, session_id: str, title: str) -> bool:
-        """更新会话标题。"""
+    def update_session(self, session_id: str, title: str, user_id: str = "") -> bool:
+        """更新会话标题（校验用户归属）。"""
         with self._conn() as conn:
             cur = conn.execute(
-                "UPDATE sessions SET title = ?, updated_at = ? WHERE id = ?",
-                (title, _now(), session_id),
+                "UPDATE sessions SET title = ?, updated_at = ? WHERE id = ? AND user_id = ?",
+                (title, _now(), session_id, user_id),
             )
             return cur.rowcount > 0
 
-    def delete_session(self, session_id: str) -> bool:
-        """删除会话及其所有消息（CASCADE）。"""
+    def delete_session(self, session_id: str, user_id: str = "") -> bool:
+        """删除会话及其所有消息（CASCADE，校验用户归属）。"""
         with self._conn() as conn:
             conn.execute("PRAGMA foreign_keys = ON")
-            cur = conn.execute("DELETE FROM sessions WHERE id = ?", (session_id,))
+            cur = conn.execute(
+                "DELETE FROM sessions WHERE id = ? AND user_id = ?",
+                (session_id, user_id),
+            )
             return cur.rowcount > 0
 
-    def session_exists(self, session_id: str) -> bool:
-        """检查会话是否存在。"""
+    def session_exists(self, session_id: str, user_id: str = "") -> bool:
+        """检查会话是否存在（校验用户归属）。"""
         with self._conn() as conn:
             row = conn.execute(
-                "SELECT 1 FROM sessions WHERE id = ?", (session_id,)
+                "SELECT 1 FROM sessions WHERE id = ? AND user_id = ?",
+                (session_id, user_id),
             ).fetchone()
             return row is not None
 
@@ -175,6 +181,7 @@ class Database:
             CREATE TABLE IF NOT EXISTS sessions (
                 id            TEXT PRIMARY KEY,
                 title         TEXT NOT NULL DEFAULT '新对话',
+                user_id       TEXT NOT NULL DEFAULT '',
                 created_at    TEXT NOT NULL,
                 updated_at    TEXT NOT NULL,
                 message_count INTEGER NOT NULL DEFAULT 0,
@@ -199,6 +206,11 @@ class Database:
         # 向前兼容：已有 DB 可能缺少 metadata 列
         try:
             conn.execute("ALTER TABLE messages ADD COLUMN metadata TEXT NOT NULL DEFAULT '{}'")
+        except sqlite3.OperationalError:
+            pass  # 列已存在
+        # 向前兼容：已有 DB 可能缺少 user_id 列
+        try:
+            conn.execute("ALTER TABLE sessions ADD COLUMN user_id TEXT NOT NULL DEFAULT ''")
         except sqlite3.OperationalError:
             pass  # 列已存在
 

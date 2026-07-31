@@ -36,3 +36,9 @@ from src.config.sandbox import (  # noqa: E402, F401
     SANDBOX_WSL_DISTRO,
     SANDBOX_WSL_ENABLED,
 )
+from src.config.auth import (  # noqa: E402, F401
+    KEYCLOAK_URL,
+    KEYCLOAK_REALM,
+    KEYCLOAK_CLIENT_ID,
+    KEYCLOAK_CLIENT_SECRET,
+)

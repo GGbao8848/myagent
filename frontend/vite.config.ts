@@ -19,9 +19,9 @@ export default defineConfig(() => {
       // Disable file watching when DISABLE_HMR is true to save CPU during agent edits.
       watch: process.env.DISABLE_HMR === 'true' ? null : {},
       proxy: {
-        // agent 后端 API（Express server.ts）
+        // agent 后端 API（FastAPI，deepagents 内核）
         '/api': {
-          target: 'http://localhost:9003',
+          target: 'http://localhost:7890',
           changeOrigin: true,
         },
       },

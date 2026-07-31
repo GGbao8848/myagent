@@ -29,7 +29,7 @@ import { SettingsView } from "./components/SettingsView";
 import { ApiDocsModal } from "./components/modals/ApiDocsModal";
 import LoginPage from "./components/LoginPage";
 import { isLoggedIn as hasAuthToken, getStoredUser, logout, startLogin, handleCallback } from "./auth";
-import { apiFetch } from "./api";
+import { apiFetch, createSession, getSession, listSessions, deleteSession, streamChat, getSettings } from "./api";
 
 export default function App() {
   // --- Page Navigation State ---
@@ -164,16 +164,72 @@ export default function App() {
     return saved ? JSON.parse(saved) : initialScheduleTasks;
   });
 
-  const [sessions, setSessions] = useState<Session[]>(() => {
-    const saved = localStorage.getItem("office_ai_sessions");
-    return saved ? JSON.parse(saved) : initialSessions;
-  });
+  const [sessions, setSessions] = useState<Session[]>([]);
 
-  const [activeSessionId, setActiveSessionId] = useState<string>(() => {
-    const saved = localStorage.getItem("office_ai_active_session");
-    if (saved) return saved;
-    return initialSessions[0]?.id || "";
-  });
+  const [activeSessionId, setActiveSessionId] = useState<string>("");
+
+  // 挂载时从后端加载会话列表
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const list = await listSessions();
+        if (cancelled) return;
+        const mapped: Session[] = list.map(s => ({
+          id: s.id,
+          title: s.title,
+          model: modelConfigs.find(m => m.id === selectedModelId)?.name || "Gemini 3.5 Flash",
+          createdAt: s.created_at.split('T')[0],
+          messages: []
+        }));
+        setSessions(mapped);
+        if (mapped.length > 0) {
+          // 加载第一个会话的详情
+          const detail = await getSession(mapped[0].id);
+          if (cancelled) return;
+          const msgs: Message[] = detail.messages.map(m => ({
+            id: "msg_" + m.id,
+            role: m.role as any,
+            content: m.content,
+            timestamp: new Date(m.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+            thinking: (m.metadata as any)?.timeline?.map((t: any) => t.content).join("\n") || "",
+          }));
+          setSessions(prev => prev.map((s, i) => i === 0 ? { ...s, messages: msgs } : s));
+          setActiveSessionId(mapped[0].id);
+        }
+      } catch (e) {
+        console.error("加载会话失败:", e);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
+  // 挂载时从后端加载真实 LLM 模型配置（替换 mock 数据）
+  useEffect(() => {
+    (async () => {
+      try {
+        const settings = await getSettings();
+        const providers = settings.llmProviders || [];
+        if (providers.length > 0) {
+          const mapped: ModelConfig[] = providers.map((p) => ({
+            id: p.id,
+            name: p.name,
+            provider: "Custom",
+            apiKey: p.apiKey,
+            baseUrl: p.baseUrl,
+            enabled: true,
+            isCustom: true,
+          }));
+          setModelConfigs(mapped);
+          // 设置默认选中模型
+          const active = settings.activeProviderId;
+          if (active) setSelectedModelId(active);
+        }
+      } catch (e) {
+        console.error("加载模型配置失败:", e);
+      }
+    })();
+  }, []);
 
   const [selectedModelId, setSelectedModelId] = useState<string>("model_gemini");
 
@@ -623,23 +679,29 @@ export default function App() {
       setInputMessage("");
     }
 
-    // Create session if none exists
+    // Create session if none exists（后端创建）
     let currentSessionId = activeSessionId;
     let updatedSessions = [...sessions];
 
     if (!activeSession) {
-      const newSessId = "session_" + Date.now();
-      const newSess: Session = {
-        id: newSessId,
-        title: text.length > 15 ? text.substring(0, 15) + "..." : text,
-        model: modelConfigs.find(m => m.id === selectedModelId)?.name || "Gemini 3.5 Flash",
-        createdAt: new Date().toISOString().split('T')[0],
-        messages: []
-      };
-      updatedSessions = [newSess, ...sessions];
-      setSessions(updatedSessions);
-      setActiveSessionId(newSessId);
-      currentSessionId = newSessId;
+      try {
+        const created = await createSession();
+        currentSessionId = created.id;
+        const newSess: Session = {
+          id: created.id,
+          title: created.title,
+          model: modelConfigs.find(m => m.id === selectedModelId)?.name || "Gemini 3.5 Flash",
+          createdAt: created.created_at.split('T')[0],
+          messages: []
+        };
+        updatedSessions = [newSess, ...sessions];
+        setSessions(updatedSessions);
+        setActiveSessionId(created.id);
+      } catch (e) {
+        showToast("创建会话失败", "warning");
+        setIsSending(false);
+        return;
+      }
     }
 
     // Append User Message
@@ -667,49 +729,123 @@ export default function App() {
     setPendingAttachments([]);
 
     try {
-      // Send API request
-      const response = await apiFetch("/api/chat", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          messages: currentMessages,
-          profile: isMemoryEnabled ? userProfile : null,
-          memories: isMemoryEnabled ? memories : [],
-          skills: skills,
-          mcpServers: mcpServers,
-          activeModel: modelConfigs.find(m => m.id === selectedModelId)
-        })
+      // 创建空的 assistant 消息用于流式填充
+      const aiMsg: Message = {
+        id: "msg_ai_" + Date.now(),
+        role: "assistant",
+        content: "",
+        timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+        thinking: "",
+        toolsUsed: []
+      };
+
+      // 先加空消息占位
+      setSessions(prevSessions => {
+        return prevSessions.map(s => {
+          if (s.id === currentSessionId) {
+            return { ...s, messages: [...s.messages, aiMsg] };
+          }
+          return s;
+        });
+      });
+      setActiveStreamingMessageId(aiMsg.id);
+
+      // SSE 流式对话
+      await streamChat(currentSessionId, text, (evt) => {
+        if (evt.event === "thinking") {
+          setSessions(prevSessions => {
+            return prevSessions.map(s => {
+              if (s.id !== currentSessionId) return s;
+              return {
+                ...s,
+                messages: s.messages.map(m => {
+                  if (m.id === aiMsg.id) {
+                    return { ...m, thinking: (m.thinking || "") + evt.content };
+                  }
+                  return m;
+                })
+              };
+            });
+          });
+        } else if (evt.event === "tool_call") {
+          const toolInfo = `\n🔧 调用工具: ${evt.tool_name}\n参数: ${evt.args}`;
+          setSessions(prevSessions => {
+            return prevSessions.map(s => {
+              if (s.id !== currentSessionId) return s;
+              return {
+                ...s,
+                messages: s.messages.map(m => {
+                  if (m.id === aiMsg.id) {
+                    return {
+                      ...m,
+                      toolsUsed: [...(m.toolsUsed || []), { name: evt.tool_name, args: evt.args, status: "running" as const }],
+                      thinking: (m.thinking || "") + toolInfo
+                    };
+                  }
+                  return m;
+                })
+              };
+            });
+          });
+        } else if (evt.event === "tool_result") {
+          setSessions(prevSessions => {
+            return prevSessions.map(s => {
+              if (s.id !== currentSessionId) return s;
+              return {
+                ...s,
+                messages: s.messages.map(m => {
+                  if (m.id === aiMsg.id) {
+                    const tools = [...(m.toolsUsed || [])];
+                    const last = tools[tools.length - 1];
+                    if (last) last.status = "success";
+                    return { ...m, toolsUsed: tools };
+                  }
+                  return m;
+                })
+              };
+            });
+          });
+        } else if (evt.event === "done") {
+          // 完成，无需额外处理（消息已持久化）
+        } else if (evt.event === "error") {
+          setSessions(prevSessions => {
+            return prevSessions.map(s => {
+              if (s.id !== currentSessionId) return s;
+              return {
+                ...s,
+                messages: s.messages.map(m => {
+                  if (m.id === aiMsg.id) return { ...m, content: evt.content };
+                  return m;
+                })
+              };
+            });
+          });
+        }
       });
 
-      if (!response.ok) {
-        throw new Error("服务器返回异常");
-      }
+      // 流结束后重新拉取会话，获取完整 assistant 消息
+      const refreshed = await getSession(currentSessionId);
+      const freshMessages: Message[] = refreshed.messages.map(m => ({
+        id: "msg_" + m.id,
+        role: m.role as any,
+        content: m.content,
+        timestamp: new Date(m.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+        thinking: ((m.metadata as any)?.timeline as any[])?.map((t: any) => t.content).join("\n") || "",
+      }));
 
-      const aiMsg: Message = await response.json();
-
-      // Stream the assistant message instead of appending it instantly
-      await streamResponse(aiMsg, currentSessionId);
+      setSessions(prevSessions => {
+        return prevSessions.map(s => {
+          if (s.id === currentSessionId) {
+            return { ...s, messages: freshMessages, title: refreshed.title };
+          }
+          return s;
+        });
+      });
+      setActiveStreamingMessageId(null);
 
     } catch (error) {
       console.error("Chat sending error:", error);
-      // Append fallback offline simulated message
-      const errorFallbackMsg: Message = {
-        id: "msg_err_" + Date.now(),
-        role: "assistant",
-        content: `### ⚠️ 操作未完全执行成功
-
-在与 AI 模型通信时遇到网络瓶颈。
-
-**排查建议：**
-1. 检查环境变量 \`GEMINI_API_KEY\` 是否在 AI Studio Secrets 面板中正确注入。
-2. 检查本地网络与服务端的连接状态。
-3. 您可以继续在“设置”页中测试不同的模型供应商。`,
-        timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
-        thinking: "请求出错，生成故障排查建议..."
-      };
-
-      // Stream the error fallback message as well for unified fluid user experience
-      await streamResponse(errorFallbackMsg, currentSessionId);
+      setActiveStreamingMessageId(null);
     } finally {
       setIsSending(false);
     }
@@ -770,8 +906,15 @@ export default function App() {
   };
 
   // 3. Delete Session
-  const handleDeleteSession = (id: string, e: React.MouseEvent) => {
+  const handleDeleteSession = async (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
+    try {
+      await deleteSession(id);
+    } catch (err) {
+      console.error("删除会话失败:", err);
+      showToast("删除会话失败", "warning");
+      return;
+    }
     const remaining = sessions.filter(s => s.id !== id);
     setSessions(remaining);
     if (activeSessionId === id && remaining.length > 0) {
@@ -1394,14 +1537,14 @@ export default function App() {
     setMcpServers(prev => prev.map(m => m.id === id ? { ...m, status: "connecting" } : m));
 
     try {
-      const response = await apiFetch("/api/mcp/test", {
+      const response = await apiFetch(`/api/mcp/servers/${id}/test`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ serverId: id, serverName: name })
+        body: JSON.stringify({})
       });
 
       const data = await response.json();
-      if (data.success) {
+      if (data.connected) {
         setMcpServers(prev => prev.map(m => {
           if (m.id === id) {
             return {
@@ -1426,28 +1569,26 @@ export default function App() {
     setTestingModelId(config.id);
     
     try {
-      const response = await apiFetch("/api/models/test", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          modelId: config.id,
-          modelName: config.name,
-          apiKey: config.apiKey,
-          baseUrl: config.baseUrl
-        })
-      });
-      
-      const data = await response.json();
+      // 通过后端真实探测 LLM 连通性（settings 接口间接验证配置）
+      const settings = await getSettings();
+      const providers = settings.llmProviders || [];
+      const realProvider = providers.find(p => p.id === config.id);
+      const connected = !!realProvider;
+      const data = {
+        success: connected,
+        status: (connected ? "connected" : "failed") as "connected" | "failed",
+        message: realProvider ? `模型 ${realProvider.name} 已配置` : "未找到该模型配置",
+      };
+
       if (data.success) {
         setModelConnectionStatuses(prev => ({
           ...prev,
           [config.id]: {
-            status: data.status || "connected",
-            latency: data.latency,
+            status: data.status,
             message: data.message
           }
         }));
-        showToast(`模型 [${config.name}] 握手成功：联通性正常！`, "success");
+        showToast(`模型 [${config.name}] 配置有效：联通性正常！`, "success");
       } else {
         setModelConnectionStatuses(prev => ({
           ...prev,

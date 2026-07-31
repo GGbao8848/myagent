@@ -90,6 +90,7 @@ async def add_request_id(request: Request, call_next):
 
 
 # ── 路由注册 ──
+# sessions / chat 在各自路由内通过 Depends(get_current_user) 做认证与用户隔离
 app.include_router(health.router)
 app.include_router(sessions.router)
 app.include_router(chat.router)

@@ -1,4 +1,4 @@
-"""SSE 流式聊天路由。"""
+"""SSE 流式聊天路由（用户级隔离）。"""
 
 from __future__ import annotations
 
@@ -6,9 +6,10 @@ import asyncio
 import json
 import logging
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 
+from src.api.auth import get_current_user
 from src.api.deps import get_db, get_manager
 from src.models import ChatRequest
 
@@ -16,13 +17,18 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/sessions", tags=["chat"])
 
 
+def _username(user: dict) -> str:
+    return user.get("username", user.get("sub", ""))
+
+
 @router.post("/{session_id}/chat")
-async def chat(session_id: str, body: ChatRequest):
+async def chat(session_id: str, body: ChatRequest,
+               user: dict = Depends(get_current_user)):
     """发送消息并流式返回 Agent 回复 (SSE)。
 
     SSE 事件: token, done, error, profile_update
     """
-    if not get_db().session_exists(session_id):
+    if not get_db().session_exists(session_id, user_id=_username(user)):
         raise HTTPException(404, "会话不存在")
 
     manager = get_manager()
@@ -72,10 +78,10 @@ async def chat(session_id: str, body: ChatRequest):
 
 
 @router.post("/{session_id}/stop")
-async def stop_chat(session_id: str):
+async def stop_chat(session_id: str, user: dict = Depends(get_current_user)):
     """主动中断指定会话的流式生成（由前端停止按钮触发）。"""
     manager = get_manager()
-    if not get_db().session_exists(session_id):
+    if not get_db().session_exists(session_id, user_id=_username(user)):
         raise HTTPException(404, "会话不存在")
 
     cancelled = manager.cancel_stream(session_id)

@@ -1,14 +1,15 @@
 // Keycloak OIDC PKCE 登录封装
-// 使用 br-agent client，跳转 Keycloak 官方登录页
+// token key 与 BR Platform 共享，实现统一 SSO
 
 const KEYCLOAK_URL = "http://localhost:6543";
 const REALM = "br-platform";
 const CLIENT_ID = "br-agent";
 const REDIRECT_URI = "http://localhost:9003/callback";
 
-const TOKEN_KEY = "agent_access_token";
-const REFRESH_KEY = "agent_refresh_token";
-const USER_KEY = "agent_user";
+// 与平台共享同一个 token key，登录/退出跨应用同步
+const TOKEN_KEY = "access_token";
+const REFRESH_KEY = "refresh_token";
+const USER_KEY = "user_info";
 
 // ── PKCE 工具函数 ──
 
@@ -40,6 +41,8 @@ export function isLoggedIn(): boolean {
   return !!localStorage.getItem(TOKEN_KEY);
 }
 
+export { isLoggedIn as hasAuthToken };
+
 export function getStoredUser(): any | null {
   const raw = localStorage.getItem(USER_KEY);
   return raw ? JSON.parse(raw) : null;
@@ -47,7 +50,7 @@ export function getStoredUser(): any | null {
 
 export function logout(): void {
   clearTokens();
-  // 注销 Keycloak session，才能真正换账号
+  // 注销 Keycloak session
   const logoutUrl =
     `${KEYCLOAK_URL}/realms/${REALM}/protocol/openid-connect/logout?` +
     `client_id=${CLIENT_ID}&` +

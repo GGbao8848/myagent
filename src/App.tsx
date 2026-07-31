@@ -94,11 +94,11 @@ export default function App() {
     const state = params.get("state");
 
     if (code && state && !callbackProcessed.current) {
-      callbackProcessed.current = true;  // 防止 StrictMode 双执行导致 code 失效
+      callbackProcessed.current = true;
+      // 用当前域名对应的 client 信息处理回调
       handleCallback(code, state)
         .then(() => {
           setIsLoggedIn(true);
-          // 用真实用户信息更新 profile
           const user = getStoredUser();
           if (user) {
             setUserProfile((prev) => ({
@@ -120,6 +120,11 @@ export default function App() {
           logout();
           setIsLoggedIn(false);
         });
+    }
+
+    // 无 token 且不是回调页 → 自动跳 Keycloak（不显示登录页）
+    if (!hasAuthToken() && !code) {
+      startLogin();
     }
   }, []);
 

@@ -60,6 +60,26 @@ model McpServer {
   @@index([owner, enabled])
 }
 
+model LlmProvider {
+  id         String   @id @default(cuid())
+  name       String
+  model      String
+  baseUrl    String
+  apiKeyEnc  String   @default("")
+  owner      String   @default("") // 公共=""，私有=userId
+  maxTokens  Int      @default(32768)
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  @@index([owner])
+}
+
+// 每个用户独立的默认模型选择；无记录 = 使用 env 内置模型
+model UserDefaultModel {
+  owner      String   @id // preferred_username
+  providerId String
+  updatedAt  DateTime @updatedAt @map("updated_at")
+}
+
 model Setting {
   key   String @id
   value String

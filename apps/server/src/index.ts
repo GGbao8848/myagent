@@ -8,6 +8,7 @@ import { registerSessionRoutes } from "./modules/sessions/sessions.routes.js";
 import { registerChatRoutes } from "./modules/chat/chat.routes.js";
 import { registerSkillRoutes } from "./modules/skills/skills.routes.js";
 import { registerMcpRoutes } from "./modules/mcp/mcp.routes.js";
+import { registerLlmRoutes } from "./modules/llm/llm.routes.js";
 
 const config = loadConfig();
 // 确保数据目录存在
@@ -30,6 +31,7 @@ registerSessionRoutes(app);
 registerChatRoutes(app);
 registerSkillRoutes(app);
 registerMcpRoutes(app);
+registerLlmRoutes(app);
 
 try {
   await app.listen({ port: config.port, host: "0.0.0.0" });

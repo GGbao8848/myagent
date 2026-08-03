@@ -57,11 +57,11 @@ async function main() {
 
   pump();
   while (!msgDone || !tcDone) {
-    const msgP = msgInFlight;
-    const tcP = tcInFlight;
+    const msgP: Promise<any> | null = msgInFlight;
+    const tcP: Promise<any> | null = tcInFlight;
     pump();
     if (msgP && tcP) {
-      const [mr, tr] = await Promise.all([msgP, tcP]);
+      const [mr, tr] = await Promise.all([msgP, tcP]) as [any, any];
       if (!mr.done) {
         const msg = mr.value;
         // 消费文本 chunks
@@ -81,7 +81,7 @@ async function main() {
         log("tool", `${tc.name} output=${JSON.stringify(out).slice(0, 30)}`);
       }
     } else if (msgP) {
-      const mr = await msgP;
+      const mr = await msgP as any;
       if (!mr.done) {
         const msg = mr.value;
         const texts: string[] = [];
@@ -91,7 +91,7 @@ async function main() {
         log("msg", `text=${texts.join("").slice(0, 30)}`);
       }
     } else if (tcP) {
-      const tr = await tcP;
+      const tr = await tcP as any;
       if (!tr.done) {
         const tc = tr.value;
         const out = await tc.output;

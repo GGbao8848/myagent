@@ -3,7 +3,10 @@ import type { FastifyInstance } from "fastify";
 import { prisma } from "../../db/index.js";
 import { runAgent } from "../../agent/runner.js";
 import { createBuiltinTools } from "../../agent/tools.js";
+import { createChatModel } from "../../agent/factory.js";
 import { getEnabledMcpTools } from "../mcp/mcp.service.js";
+import { getActiveProvider } from "../llm/llm.service.js";
+import { decryptKey } from "../llm/llm.crypto.js";
 import { buildSkillPromptAsync } from "../skills/skills.service.js";
 import type { TimelineEntry } from "../../agent/runner.js";
 
@@ -91,9 +94,20 @@ export function registerChatRoutes(app: FastifyInstance): void {
 
       try {
         const mcpTools = await getEnabledMcpTools(user.username);
+        // 按用户激活的默认 provider 创建模型；无则回退 env 内置 qwen
+        const active = await getActiveProvider(user.username);
+        let model: ReturnType<typeof createChatModel> | undefined;
+        if (active) {
+          model = createChatModel({
+            model: active.model,
+            baseUrl: active.baseUrl,
+            apiKey: active.apiKeyEnc ? decryptKey(active.apiKeyEnc) : undefined,
+          });
+        }
         const result = await runAgent({
           systemPrompt,
           tools: [...createBuiltinTools(), ...mcpTools],
+          model,
           messages: llmMessages,
           signal: controller.signal,
           recursionLimit: 30,

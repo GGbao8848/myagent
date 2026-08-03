@@ -4,9 +4,10 @@ import { isAuthenticated, handleCallback, login, logout, getUserName } from "./a
 import DialogueView from "./views/DialogueView";
 import SkillsView from "./views/SkillsView";
 import McpView from "./views/McpView";
+import LlmView from "./views/LlmView";
 import type { MessageDto } from "@br-agent/shared";
 
-type View = "dialogue" | "skills" | "mcp";
+type View = "dialogue" | "skills" | "mcp" | "llm";
 
 export default function App() {
   const [authed, setAuthed] = useState<boolean | null>(null);
@@ -99,6 +100,14 @@ export default function App() {
           >
             连接管理
           </button>
+          <button
+            onClick={() => setView("llm")}
+            className={`w-full text-left px-3 py-2 rounded-md text-sm ${
+              view === "llm" ? "bg-blue-50 text-blue-700" : "text-gray-700 hover:bg-gray-100"
+            }`}
+          >
+            模型配置
+          </button>
         </nav>
         <div className="p-3 border-t border-gray-100">
           <button
@@ -116,8 +125,10 @@ export default function App() {
           <DialogueView activeSessionId={activeSessionId} onSelectSession={setActiveSessionId} />
         ) : view === "skills" ? (
           <SkillsView />
-        ) : (
+        ) : view === "mcp" ? (
           <McpView />
+        ) : (
+          <LlmView />
         )}
       </main>
     </div>

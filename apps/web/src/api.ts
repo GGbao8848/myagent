@@ -1,5 +1,5 @@
 // API 层：fetch 封装（自动带 token、401 刷新重试）+ SSE 消费
-import type { ChatRequestDto, McpServerDto, McpTestResultDto, MessageDto, SessionDetailDto, SessionDto, SkillDto, SSEChatEvent } from "@br-agent/shared";
+import type { ChatRequestDto, LlmProviderDto, LlmProviderInput, LlmProviderListDto, McpServerDto, McpTestResultDto, MessageDto, SessionDetailDto, SessionDto, SkillDto, SSEChatEvent } from "@br-agent/shared";
 import { getTokens, refreshAccessToken } from "./auth";
 
 async function request(path: string, options: RequestInit = {}, retry = true): Promise<Response> {
@@ -60,6 +60,20 @@ export const api = {
   toggleMcpServer: (id: string, enabled: boolean) =>
     json(`/api/mcp/servers/${id}/toggle`, { method: "POST", body: JSON.stringify({ enabled }) }),
   deleteMcpServer: (id: string) => json(`/api/mcp/servers/${id}`, { method: "DELETE" }),
+
+  // LLM Provider
+  listLlmProviders: () => json<LlmProviderListDto>("/api/llm/providers"),
+  createLlmProvider: (body: LlmProviderInput) =>
+    json<LlmProviderDto>("/api/llm/providers", { method: "POST", body: JSON.stringify(body) }),
+  updateLlmProvider: (id: string, body: Partial<LlmProviderInput>) =>
+    json<LlmProviderDto>(`/api/llm/providers/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
+  deleteLlmProvider: (id: string) => json(`/api/llm/providers/${id}`, { method: "DELETE" }),
+  activateLlmProvider: (id: string) =>
+    json(`/api/llm/providers/${id}/activate`, { method: "POST", body: JSON.stringify({}) }),
+  resetLlmDefault: () =>
+    json(`/api/llm/providers/reset`, { method: "POST", body: JSON.stringify({}) }),
+  testLlmProvider: (id: string) =>
+    json<{ ok: boolean; error?: string }>(`/api/llm/providers/${id}/test`, { method: "POST", body: JSON.stringify({}) }),
 };
 
 /** 发送消息并消费 SSE 事件流 */

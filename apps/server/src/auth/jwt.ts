@@ -18,6 +18,7 @@ function getJwks() {
 export interface AuthUser {
   username: string;
   sub: string;
+  isAdmin: boolean;
 }
 
 declare module "fastify" {
@@ -41,7 +42,8 @@ export async function requireAuth(
       issuer: config.keycloakIssuer,
     });
     const username = (payload.preferred_username as string) ?? (payload.sub as string);
-    request.authUser = { username, sub: payload.sub as string };
+    const roles = (payload.realm_access as { roles?: string[] } | undefined)?.roles ?? [];
+    request.authUser = { username, sub: payload.sub as string, isAdmin: roles.includes("admin") };
   } catch {
     reply.code(401).send({ error: "未授权：token 无效或已过期" });
   }

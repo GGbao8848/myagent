@@ -125,3 +125,16 @@ export function getUserName(): string {
     return "";
   }
 }
+
+/** 当前用户是否为管理员（JWT realm_access.roles 含 admin） */
+export function getIsAdmin(): boolean {
+  const token = localStorage.getItem(TOKEN_KEY);
+  if (!token) return false;
+  try {
+    const payload = JSON.parse(atob(token.split(".")[1]));
+    const roles = payload.realm_access?.roles ?? [];
+    return roles.includes("admin");
+  } catch {
+    return false;
+  }
+}

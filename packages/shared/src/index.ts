@@ -90,6 +90,32 @@ export interface McpTestResultDto {
   error?: string;
 }
 
+// ── LLM Provider ──
+export interface LlmProviderDto {
+  id: string;
+  name: string;
+  model: string;
+  baseUrl: string;
+  apiKeyMasked: string; // 脱敏展示，如 "sk-***abc"
+  owner: string; // 公共=""，私有=userId
+  maxTokens: number;
+  createdAt: string;
+}
+
+export interface LlmProviderListDto {
+  providers: LlmProviderDto[];
+  activeProviderId: string | null; // null = 使用 env 内置模型
+}
+
+export interface LlmProviderInput {
+  name: string;
+  model: string;
+  baseUrl: string;
+  apiKey?: string;
+  public?: boolean;
+  maxTokens?: number;
+}
+
 export interface ChatRequestDto {
   content: string;
 }

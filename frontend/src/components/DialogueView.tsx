@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useEffect, useState } from "react";
 import { motion } from "motion/react";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -48,6 +48,51 @@ interface DialogueViewProps {
   setSelectedModelId: (id: string) => void;
   modelConfigs: ModelConfig[];
 }
+
+// 安全渲染工具参数/结果：对象 → JSON，字符串原样，空值 → 占位
+const renderToolPayload = (value: unknown): string => {
+  if (value == null || value === "") return "无";
+  if (typeof value === "string") return value;
+  try {
+    return JSON.stringify(value, null, 2);
+  } catch {
+    return String(value);
+  }
+};
+
+// 打字机组件：把流式全文 text 逐字“打”出来
+const TypewriterText: React.FC<{ text: string; isActive: boolean }> = ({ text, isActive }) => {
+  const [count, setCount] = useState(0);
+
+  useEffect(() => {
+    // 结束后直接显示全文，停止打字
+    if (!isActive) {
+      setCount(text.length);
+      return;
+    }
+  }, [isActive, text.length]);
+
+  useEffect(() => {
+    if (!isActive) return;
+    // 每个 tick 推进 2 个字符；text 变化不重启，持续追赶目标
+    const timer = setInterval(() => {
+      setCount(prev => Math.min(prev + 2, text.length));
+    }, 28);
+    return () => clearInterval(timer);
+  }, [isActive]);
+
+  const shown = text.slice(0, count);
+  const done = count >= text.length;
+
+  return (
+    <span className="whitespace-pre-wrap">
+      {shown}
+      {!done && (
+        <span className="inline-block w-1.5 h-3.5 ml-0.5 align-middle bg-indigo-500/70 animate-pulse rounded-sm" />
+      )}
+    </span>
+  );
+};
 
 export const DialogueView: React.FC<DialogueViewProps> = ({
   isDraggingFile,
@@ -289,7 +334,7 @@ export const DialogueView: React.FC<DialogueViewProps> = ({
                       </div>
                     ) : (
                       <div className="w-full max-w-3xl flex flex-col gap-3.5">
-                        {(msg.thinking || (msg.toolsUsed && msg.toolsUsed.length > 0)) && (
+                        {(msg.thinking || (msg.toolsUsed && msg.toolsUsed.length > 0) || msg.id === activeStreamingMessageId) && (
                           <div className="w-full bg-slate-50/70 border border-slate-200/60 rounded-xl overflow-hidden transition-all duration-200 hover:border-slate-300 shadow-3xs">
                             <div 
                               onClick={() => setExpandedThinking(prev => ({ ...prev, [msg.id]: !prev[msg.id] }))}
@@ -328,21 +373,27 @@ export const DialogueView: React.FC<DialogueViewProps> = ({
                                 </div>
 
                                 {(() => {
+                                  const isStreaming = msg.id === activeStreamingMessageId;
                                   const thoughts = msg.thinking ? msg.thinking.split('\n').filter(line => line.trim()) : [];
                                   const tools = msg.toolsUsed || [];
                                   const timeline: { type: "thought" | "tool"; text: string; tool?: any }[] = [];
 
-                                  if (thoughts.length > 0 && tools.length > 0) {
-                                    const splitIndex = Math.max(1, Math.min(Math.floor(thoughts.length / 2), thoughts.length - 1));
-                                    
-                                    thoughts.slice(0, splitIndex).forEach(t => {
-                                      timeline.push({ type: "thought", text: t });
-                                    });
-                                    
+                                  // 运行中：thought 文字统一由末尾打字机流式展示，timeline 只放工具块，避免重复
+                                  if (isStreaming) {
                                     tools.forEach(tool => {
                                       timeline.push({ type: "tool", text: `调用外部系统接口: ${tool.name}`, tool });
                                     });
-                                    
+                                  } else if (thoughts.length > 0 && tools.length > 0) {
+                                    const splitIndex = Math.max(1, Math.min(Math.floor(thoughts.length / 2), thoughts.length - 1));
+
+                                    thoughts.slice(0, splitIndex).forEach(t => {
+                                      timeline.push({ type: "thought", text: t });
+                                    });
+
+                                    tools.forEach(tool => {
+                                      timeline.push({ type: "tool", text: `调用外部系统接口: ${tool.name}`, tool });
+                                    });
+
                                     thoughts.slice(splitIndex).forEach(t => {
                                       timeline.push({ type: "thought", text: t });
                                     });
@@ -409,7 +460,7 @@ export const DialogueView: React.FC<DialogueViewProps> = ({
                                                       <span>输入参数 (Parameters)</span>
                                                     </summary>
                                                     <div className="mt-1.5 pl-3 border-l-2 border-slate-200 py-1 font-mono text-[10px] text-slate-600 overflow-x-auto whitespace-pre-wrap bg-slate-100/50 rounded-md p-2">
-                                                      {event.tool.args}
+                                                      {renderToolPayload(event.tool.args)}
                                                     </div>
                                                   </details>
                                                   
@@ -420,7 +471,7 @@ export const DialogueView: React.FC<DialogueViewProps> = ({
                                                         <span>输出反馈 (Result Context)</span>
                                                       </summary>
                                                       <div className="mt-1.5 pl-3 border-l-2 border-emerald-200 py-1 font-mono text-[10px] text-emerald-800 overflow-x-auto bg-emerald-50/40 rounded-md p-2">
-                                                        {event.tool.result}
+                                                        {renderToolPayload(event.tool.result)}
                                                       </div>
                                                     </details>
                                                   )}
@@ -442,13 +493,20 @@ export const DialogueView: React.FC<DialogueViewProps> = ({
                                       })}
                                       
                                       {msg.id === activeStreamingMessageId ? (
-                                        <div className="relative group/step animate-pulse">
+                                        <div className="relative group/step">
                                           <div className="absolute -left-[32px] top-1 w-3 h-3 flex items-center justify-center bg-white rounded-full">
                                             <Loader2 className="w-3.5 h-3.5 text-indigo-500 animate-spin" />
                                           </div>
-                                          <div className="flex flex-col gap-0.5 pl-1">
-                                            <span className="text-xs text-indigo-600 font-bold font-sans">
-                                              AI Agent 自动化流水线流式响应中...
+                                          <div className="flex flex-col gap-1 pl-1">
+                                            <span className="text-xs font-medium text-slate-500 font-sans leading-relaxed">
+                                              {msg.thinking && msg.thinking.trim() ? (
+                                                <TypewriterText text={msg.thinking} isActive={msg.id === activeStreamingMessageId} />
+                                              ) : (
+                                                <>
+                                                  正在理解任务并规划执行路径...
+                                                  <span className="inline-block w-1.5 h-3.5 ml-0.5 align-middle bg-indigo-500/70 animate-pulse rounded-sm" />
+                                                </>
+                                              )}
                                             </span>
                                           </div>
                                         </div>

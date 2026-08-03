@@ -232,7 +232,7 @@ export async function updateSessionTitle(id: string, title: string): Promise<voi
 
 export type SSEEvent =
   | { event: "thinking"; content: string }
-  | { event: "tool_call"; tool_name: string; args: string }
+  | { event: "tool_call"; tool_name: string; args: string | Record<string, unknown> }
   | { event: "tool_result"; tool_name: string; content: string }
   | { event: "done"; message_id?: number; cancelled?: boolean }
   | { event: "error"; content: string }

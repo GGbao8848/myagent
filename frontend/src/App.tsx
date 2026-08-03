@@ -787,7 +787,11 @@ export default function App() {
             });
           });
         } else if (evt.event === "tool_call") {
-          const toolInfo = `\n🔧 调用工具: ${evt.tool_name}\n参数: ${evt.args}`;
+          // args 可能是对象（Qwen tool_call 参数）或字符串，统一序列化为文本展示
+          const argsText = typeof evt.args === "string"
+            ? evt.args
+            : (evt.args ? JSON.stringify(evt.args, null, 2) : "");
+          const toolInfo = `\n🔧 调用工具: ${evt.tool_name}\n参数: ${argsText}`;
           setSessions(prevSessions => {
             return prevSessions.map(s => {
               if (s.id !== currentSessionId) return s;
@@ -797,7 +801,7 @@ export default function App() {
                   if (m.id === aiMsg.id) {
                     return {
                       ...m,
-                      toolsUsed: [...(m.toolsUsed || []), { name: evt.tool_name, args: evt.args, status: "running" as const }],
+                      toolsUsed: [...(m.toolsUsed || []), { name: evt.tool_name, args: argsText, status: "running" as const }],
                       thinking: (m.thinking || "") + toolInfo
                     };
                   }
@@ -816,7 +820,10 @@ export default function App() {
                   if (m.id === aiMsg.id) {
                     const tools = [...(m.toolsUsed || [])];
                     const last = tools[tools.length - 1];
-                    if (last) last.status = "success";
+                    if (last) {
+                      last.status = "success";
+                      last.result = evt.content;
+                    }
                     return { ...m, toolsUsed: tools };
                   }
                   return m;

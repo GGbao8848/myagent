@@ -3,6 +3,7 @@ import type { FastifyInstance } from "fastify";
 import { prisma } from "../../db/index.js";
 import { runAgent } from "../../agent/runner.js";
 import { createBuiltinTools } from "../../agent/tools.js";
+import { getEnabledMcpTools } from "../mcp/mcp.service.js";
 import { buildSkillPromptAsync } from "../skills/skills.service.js";
 import type { TimelineEntry } from "../../agent/runner.js";
 
@@ -89,9 +90,10 @@ export function registerChatRoutes(app: FastifyInstance): void {
       let assistantTimeline: TimelineEntry[] = [];
 
       try {
+        const mcpTools = await getEnabledMcpTools(user.username);
         const result = await runAgent({
           systemPrompt,
-          tools: createBuiltinTools(),
+          tools: [...createBuiltinTools(), ...mcpTools],
           messages: llmMessages,
           signal: controller.signal,
           recursionLimit: 30,

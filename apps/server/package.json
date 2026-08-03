@@ -17,6 +17,7 @@
     "@br-agent/shared": "*",
     "@fastify/cors": "^11.3.0",
     "@langchain/core": "^1.2.4",
+    "@langchain/mcp-adapters": "^1.1.3",
     "@langchain/openai": "^1.5.5",
     "@prisma/client": "6.16.0",
     "adm-zip": "^0.6.0",

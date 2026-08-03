@@ -1,5 +1,5 @@
 // API 层：fetch 封装（自动带 token、401 刷新重试）+ SSE 消费
-import type { ChatRequestDto, MessageDto, SessionDetailDto, SessionDto, SkillDto, SSEChatEvent } from "@br-agent/shared";
+import type { ChatRequestDto, McpServerDto, McpTestResultDto, MessageDto, SessionDetailDto, SessionDto, SkillDto, SSEChatEvent } from "@br-agent/shared";
 import { getTokens, refreshAccessToken } from "./auth";
 
 async function request(path: string, options: RequestInit = {}, retry = true): Promise<Response> {
@@ -50,6 +50,16 @@ export const api = {
   toggleSkill: (id: string, enabled: boolean) =>
     json(`/api/skills/${id}`, { method: "PATCH", body: JSON.stringify({ enabled }) }),
   deleteSkill: (id: string) => json(`/api/skills/${id}`, { method: "DELETE" }),
+
+  // MCP 服务器
+  listMcpServers: () => json<McpServerDto[]>("/api/mcp/servers"),
+  createMcpServer: (body: Record<string, unknown>) =>
+    json<McpServerDto>("/api/mcp/servers", { method: "POST", body: JSON.stringify(body) }),
+  testMcpServer: (id: string) =>
+    json<McpTestResultDto>(`/api/mcp/servers/${id}/test`, { method: "POST", body: JSON.stringify({}) }),
+  toggleMcpServer: (id: string, enabled: boolean) =>
+    json(`/api/mcp/servers/${id}/toggle`, { method: "POST", body: JSON.stringify({ enabled }) }),
+  deleteMcpServer: (id: string) => json(`/api/mcp/servers/${id}`, { method: "DELETE" }),
 };
 
 /** 发送消息并消费 SSE 事件流 */

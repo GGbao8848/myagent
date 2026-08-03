@@ -57,8 +57,9 @@ export async function runAgent(opts: RunAgentOptions): Promise<RunAgentResult> {
   });
 
   const timeline: TimelineEntry[] = [];
-  let thinkingOut = ""; // 累计思考
+  let thinkingOut = ""; // 累计思考（用于返回/存储）
   let contentOut = ""; // 最终正文
+  let currentThinking = ""; // 当前思考段（未闭合，工具调用时闭合入 timeline）
 
   const emit = async (evt: AgentEvent) => {
     await opts.onEvent(evt);
@@ -70,18 +71,38 @@ export async function runAgent(opts: RunAgentOptions): Promise<RunAgentResult> {
       { version: "v3", signal: opts.signal, recursionLimit: opts.recursionLimit ?? 30 } as never
     );
 
-    // 阶段一：逐 chunk 消费 messages，增量 emit thinking/content（打字机效果）。
-    // 每条消息先探测 toolCalls（可重复迭代）：带工具调用 → 全部当思考；
-    // 否则按 </think> 边界切分：标签前 = 思考，标签后 = 正文，标签本身丢弃。
-    for await (const msg of run.messages) {
-      if (opts.signal?.aborted) break;
+    // 阶段一：交错推进 messages 与 toolCalls 两个投影流，实现"思考→工具→正文"实时弹出。
+    // run.messages 每条消息先增量 emit 文本（思考/正文）；run.toolCalls 在工具一执行完
+    // 就 yield（诊断证实），交错消费让工具块在工具执行完立即出现，而非攒到最后。
+    const msgIter = (run.messages as AsyncIterable<unknown>)[Symbol.asyncIterator]();
+    const tcIter = (run.toolCalls as AsyncIterable<{
+      name: string;
+      callId: string;
+      input: unknown;
+      output: Promise<unknown> | unknown;
+    }>)[Symbol.asyncIterator]();
 
-      // 探测本消息是否携带工具调用
+    let msgDone = false;
+    let tcDone = false;
+    let msgNext: Promise<IteratorResult<unknown>> | null = null;
+    let tcNext: Promise<
+      IteratorResult<{ name: string; callId: string; input: unknown; output: Promise<unknown> | unknown }>
+    > | null = null;
+
+    const emitText = async (msg: unknown) => {
+      if (opts.signal?.aborted) return;
+      const m = msg as {
+        toolCalls?: AsyncIterable<unknown>;
+        text: AsyncIterable<string>;
+      };
+      // 探测本消息是否携带工具调用（可重复迭代）
       let hasTool = false;
       try {
-        for await (const _tc of msg.toolCalls as AsyncIterable<unknown>) {
-          hasTool = true;
-          break;
+        if (m.toolCalls) {
+          for await (const _tc of m.toolCalls) {
+            hasTool = true;
+            break;
+          }
         }
       } catch {
         /* 忽略 */
@@ -89,7 +110,7 @@ export async function runAgent(opts: RunAgentOptions): Promise<RunAgentResult> {
 
       let buf = "";
       let boundary = -1; // buf 中 "</think>" 结束位置；-1 = 尚未出现
-      for await (const chunk of msg.text as AsyncIterable<string>) {
+      for await (const chunk of m.text) {
         if (opts.signal?.aborted) break;
         if (!chunk) continue;
         buf += chunk;
@@ -115,6 +136,7 @@ export async function runAgent(opts: RunAgentOptions): Promise<RunAgentResult> {
           const cleaned = thinkPart.replace(/<\/?think>/g, "");
           if (cleaned) {
             thinkingOut += cleaned;
+            currentThinking += cleaned;
             await emit({ event: "thinking", content: cleaned });
           }
         }
@@ -123,17 +145,20 @@ export async function runAgent(opts: RunAgentOptions): Promise<RunAgentResult> {
           await emit({ event: "content", content: contentPart });
         }
       }
-    }
+    };
 
-    // 阶段二：消费 toolCalls 流，发 tool_call + tool_result
-    const runToolCalls = run.toolCalls as AsyncIterable<{
+    const emitTool = async (tc: {
       name: string;
       callId: string;
       input: unknown;
       output: Promise<unknown> | unknown;
-    }>;
-    for await (const tc of runToolCalls) {
-      if (opts.signal?.aborted) break;
+    }) => {
+      if (opts.signal?.aborted) return;
+      // 闭合当前思考段：工具调用前已产生的思考入 timeline，与工具交叉展示
+      if (currentThinking.trim()) {
+        timeline.push({ type: "thinking", content: currentThinking.trim() });
+        currentThinking = "";
+      }
       const name = tc.name;
       const input = (tc.input ?? {}) as Record<string, unknown>;
       await emit({ event: "tool_call", tool_name: name, args: input, id: tc.callId });
@@ -150,11 +175,46 @@ export async function runAgent(opts: RunAgentOptions): Promise<RunAgentResult> {
       }
       await emit({ event: "tool_result", tool_name: name, content: outputText, is_error: isError });
       timeline.push({ type: "tool_result", name, content: outputText, isError });
+    };
+
+    // 确保两流都有 next() 在途；未 done 且未拉取时发起
+    const start = (): void => {
+      if (!msgDone && msgNext === null) msgNext = msgIter.next();
+      if (!tcDone && tcNext === null) tcNext = tcIter.next();
+    };
+
+    start();
+    while (!msgDone || !tcDone) {
+      if (opts.signal?.aborted) break;
+      start();
+      const m = msgNext as Promise<IteratorResult<unknown>> | null;
+      const t = tcNext as Promise<
+        IteratorResult<{ name: string; callId: string; input: unknown; output: Promise<unknown> | unknown }>
+      > | null;
+      const jobs: Promise<
+        | { which: "msg"; r: IteratorResult<unknown> }
+        | {
+            which: "tc";
+            r: IteratorResult<{ name: string; callId: string; input: unknown; output: Promise<unknown> | unknown }>;
+          }
+      >[] = [];
+      if (!msgDone && m) jobs.push(m.then((r) => ({ which: "msg", r })));
+      if (!tcDone && t) jobs.push(t.then((r) => ({ which: "tc", r })));
+      const won = await Promise.race(jobs);
+      if (won.which === "msg") {
+        msgNext = null;
+        if (won.r.done) msgDone = true;
+        else await emitText(won.r.value);
+      } else {
+        tcNext = null;
+        if (won.r.done) tcDone = true;
+        else await emitTool(won.r.value);
+      }
     }
 
-    // 阶段三：收尾 —— thinking/content 已全程增量 emit；补一条思考时间线记录
-    if (thinkingOut.trim()) {
-      timeline.push({ type: "thinking", content: thinkingOut });
+    // 阶段三：收尾 —— 闭合最后一段思考（若还有未闭合的）
+    if (currentThinking.trim()) {
+      timeline.push({ type: "thinking", content: currentThinking.trim() });
     }
 
     return { thinking: thinkingOut, content: contentOut, timeline };

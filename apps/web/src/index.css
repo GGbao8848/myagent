@@ -4,3 +4,134 @@ html, body, #root {
   height: 100%;
   margin: 0;
 }
+
+/* ── Markdown 内容排版（.md-content 容器内生效）── */
+.md-content {
+  font-size: 0.875rem;
+  line-height: 1.7;
+  color: #1f2937;
+  word-break: break-word;
+}
+
+.md-content > *:first-child {
+  margin-top: 0;
+}
+.md-content > *:last-child {
+  margin-bottom: 0;
+}
+
+/* 标题 */
+.md-content h1,
+.md-content h2,
+.md-content h3,
+.md-content h4 {
+  font-weight: 600;
+  color: #111827;
+  line-height: 1.4;
+  margin: 1.1em 0 0.5em;
+}
+.md-content h1 { font-size: 1.25rem; border-bottom: 1px solid #e5e7eb; padding-bottom: 0.3em; }
+.md-content h2 { font-size: 1.1rem; }
+.md-content h3 { font-size: 1rem; }
+.md-content h4 { font-size: 0.9rem; }
+
+/* 段落 / 列表 */
+.md-content p {
+  margin: 0.5em 0;
+}
+.md-content ul,
+.md-content ol {
+  margin: 0.5em 0;
+  padding-left: 1.5em;
+}
+.md-content ul { list-style: disc; }
+.md-content ol { list-style: decimal; }
+.md-content li {
+  margin: 0.25em 0;
+}
+.md-content li > ul,
+.md-content li > ol {
+  margin: 0.2em 0;
+}
+
+/* 加粗 / 斜体 / 行内代码 */
+.md-content strong { font-weight: 600; color: #111827; }
+.md-content em { font-style: italic; }
+.md-content code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.8em;
+  background: #f3f4f6;
+  border: 1px solid #e5e7eb;
+  border-radius: 4px;
+  padding: 0.1em 0.35em;
+  color: #b91c1c;
+}
+
+/* 代码块 */
+.md-content pre {
+  background: #1f2937;
+  color: #e5e7eb;
+  border-radius: 8px;
+  padding: 0.9em 1em;
+  margin: 0.7em 0;
+  overflow-x: auto;
+  font-size: 0.8rem;
+  line-height: 1.55;
+}
+.md-content pre code {
+  background: transparent;
+  border: none;
+  padding: 0;
+  color: inherit;
+  font-size: inherit;
+}
+
+/* 表格 */
+.md-content table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 0.7em 0;
+  font-size: 0.82rem;
+}
+.md-content th,
+.md-content td {
+  border: 1px solid #e5e7eb;
+  padding: 0.45em 0.7em;
+  text-align: left;
+  vertical-align: top;
+}
+.md-content th {
+  background: #f9fafb;
+  font-weight: 600;
+  color: #111827;
+  white-space: nowrap;
+}
+.md-content tbody tr:nth-child(even) {
+  background: #f9fafb;
+}
+
+/* 引用 */
+.md-content blockquote {
+  margin: 0.7em 0;
+  padding: 0.3em 1em;
+  border-left: 3px solid #d1d5db;
+  color: #4b5563;
+  background: #f9fafb;
+  border-radius: 0 6px 6px 0;
+}
+
+/* 分割线 */
+.md-content hr {
+  border: none;
+  border-top: 1px solid #e5e7eb;
+  margin: 1.2em 0;
+}
+
+/* 链接 */
+.md-content a {
+  color: #2563eb;
+  text-decoration: none;
+}
+.md-content a:hover {
+  text-decoration: underline;
+}

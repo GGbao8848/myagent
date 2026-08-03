@@ -64,6 +64,32 @@ export interface SkillDto {
   createdAt: string;
 }
 
+// ── MCP 服务器 ──
+export interface McpServerDto {
+  id: string;
+  name: string;
+  type: string; // "http" | "stdio"
+  url: string;
+  command: string;
+  args: string[];
+  headers: Record<string, string>;
+  owner: string;
+  enabled: boolean;
+  createdAt: string;
+}
+
+export interface McpToolInfo {
+  name: string;
+  description: string;
+  schema?: unknown;
+}
+
+export interface McpTestResultDto {
+  ok: boolean;
+  tools: McpToolInfo[];
+  error?: string;
+}
+
 export interface ChatRequestDto {
   content: string;
 }

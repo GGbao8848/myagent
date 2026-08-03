@@ -15,18 +15,15 @@ interface LocalMessage {
   error?: string;
 }
 
-// 会话视图状态：可见消息 + 运行中的流式辅助状态（后台任务继续推进）
+// 会话视图状态：可见消息 + 是否在生成（流式内容由占位 assistant 消息承载）
 interface SessionState {
   messages: LocalMessage[];
   streaming: boolean; // 该会话是否正在生成（有活跃流）
-  runningContent: string; // 后台运行时实时同步的正文（供切换查看）
-  runningThinking: string;
-  runningTimeline: TimelineEntry[];
   runningError?: string;
 }
 
 function emptySessionState(): SessionState {
-  return { messages: [], streaming: false, runningContent: "", runningThinking: "", runningTimeline: [] };
+  return { messages: [], streaming: false };
 }
 
 // 每个进行中会话的流式控制状态（与 React 渲染分离，ref 保存）
@@ -34,8 +31,22 @@ interface FlowState {
   id: string;
   content: string;
   thinking: string;
-  timeline: TimelineEntry[];
+  timeline: TimelineEntry[]; // 完整交叉时间线：thinking 段与 tool_call/tool_result 按顺序交替
   error: string;
+}
+
+/** 把段追加进完整时间线：thinking 段连续时累积，工具段直接新开（实现思考/工具交叉） */
+function appendSegment(flow: FlowState, seg: TimelineEntry): void {
+  if (seg.type === "thinking") {
+    const last = flow.timeline[flow.timeline.length - 1];
+    if (last && last.type === "thinking") {
+      last.content += seg.content;
+    } else {
+      flow.timeline.push({ type: "thinking", content: seg.content });
+    }
+  } else {
+    flow.timeline.push(seg);
+  }
 }
 
 interface Props {
@@ -87,13 +98,12 @@ export default function DialogueView({ activeSessionId, onSelectSession }: Props
           timeline: m.timeline ?? undefined,
         }));
         if (flow) {
-          // 该会话有后台流：历史 + 实时已生成部分
+          // 该会话有后台流：保留内存态（含正在生成的占位消息与已生成部分），
+          // 只同步实时进度，避免用服务端快照覆盖导致整条回复消失
+          const current = statesRef.current[activeSessionId] ?? emptySessionState();
           setStateFor(activeSessionId, () => ({
-            messages: persisted,
+            ...current,
             streaming: true,
-            runningContent: flow.content,
-            runningThinking: flow.thinking,
-            runningTimeline: flow.timeline,
             runningError: flow.error,
           }));
         } else {
@@ -101,9 +111,6 @@ export default function DialogueView({ activeSessionId, onSelectSession }: Props
             ...base,
             messages: persisted,
             streaming: false,
-            runningContent: "",
-            runningThinking: "",
-            runningTimeline: [],
             runningError: undefined,
           }));
         }
@@ -117,12 +124,13 @@ export default function DialogueView({ activeSessionId, onSelectSession }: Props
   // 自动滚动到底部
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages, state.runningContent]);
+  }, [messages]);
 
-  // 智能新建会话：仅当没有正在使用的会话时创建空会话；否则直接聚焦已有会话
+  // 新建会话：总是切换到干净会话（若已有未发消息的空会话则复用它，避免堆积空会话）
   const newSession = async () => {
-    if (activeSessionId) {
-      onSelectSession(activeSessionId);
+    const existingEmpty = sessions.find((s) => s.title === "新对话");
+    if (existingEmpty) {
+      onSelectSession(existingEmpty.id);
       return;
     }
     const s = await api.createSession();
@@ -159,9 +167,6 @@ export default function DialogueView({ activeSessionId, onSelectSession }: Props
         { id: assistantId, role: "assistant", content: "", streaming: true },
       ],
       streaming: true,
-      runningContent: "",
-      runningThinking: "",
-      runningTimeline: [],
       runningError: undefined,
     }));
 
@@ -181,10 +186,6 @@ export default function DialogueView({ activeSessionId, onSelectSession }: Props
             ? { ...m, content: flow.content, thinking: flow.thinking, timeline: flow.timeline, error: flow.error, streaming: true }
             : m
         ),
-        runningContent: flow.content,
-        runningThinking: flow.thinking,
-        runningTimeline: flow.timeline,
-        runningError: flow.error,
         streaming: true,
       }));
     };
@@ -200,9 +201,6 @@ export default function DialogueView({ activeSessionId, onSelectSession }: Props
           return { ...m, id: finalId, content: flow.content, thinking: flow.thinking, timeline: flow.timeline, error: flow.error, streaming: false };
         }),
         streaming: false,
-        runningContent: "",
-        runningThinking: "",
-        runningTimeline: [],
         runningError: undefined,
       }));
       // 刷新会话列表（标题可能已改）
@@ -212,6 +210,8 @@ export default function DialogueView({ activeSessionId, onSelectSession }: Props
     const eventHandlers: Record<string, (evt: any) => void> = {
       thinking: (e) => {
         flow.thinking += e.content;
+        // 思考段追加到交叉时间线（与工具交叉展示）
+        appendSegment(flow, { type: "thinking", content: e.content });
         apply();
       },
       content: (e) => {
@@ -322,15 +322,6 @@ export default function DialogueView({ activeSessionId, onSelectSession }: Props
               {messages.map((m) => (
                 <MessageBubble key={m.id} message={m} />
               ))}
-              {/* 该会话正在运行：实时同步后台进度 */}
-              {streaming ? (
-                <StreamingProgress
-                  content={state.runningContent}
-                  thinking={state.runningThinking}
-                  timeline={state.runningTimeline}
-                  error={state.runningError}
-                />
-              ) : null}
             </>
           )}
           <div ref={bottomRef} />
@@ -378,40 +369,6 @@ export default function DialogueView({ activeSessionId, onSelectSession }: Props
   );
 }
 
-// 该会话运行中的实时进度
-function StreamingProgress({ content, thinking, timeline, error }: {
-  content: string;
-  thinking: string;
-  timeline: TimelineEntry[];
-  error?: string;
-}) {
-  return (
-    <div className="space-y-2 opacity-90">
-      {thinking ? <ThinkingBlock text={thinking} /> : null}
-      {timeline
-        .filter((t) => t.type === "tool_call" || t.type === "tool_result")
-        .map((t, i) => (
-          <ToolBlock key={i} entry={t} />
-        ))}
-      {content ? (
-        <div className="bg-white border border-gray-200 rounded-xl px-4 py-3 text-sm">
-          <ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown>
-        </div>
-      ) : null}
-      {error ? (
-        <div className="text-red-500 text-sm bg-red-50 border border-red-200 rounded-xl px-4 py-2">
-          错误：{error}
-        </div>
-      ) : null}
-      {!content && !thinking ? (
-        <div className="text-gray-400 text-sm bg-white border border-gray-200 rounded-xl px-4 py-3 animate-pulse">
-          思考中…
-        </div>
-      ) : null}
-    </div>
-  );
-}
-
 // 消息气泡
 function MessageBubble({ message }: { message: LocalMessage }) {
   if (message.role === "user") {
@@ -425,17 +382,32 @@ function MessageBubble({ message }: { message: LocalMessage }) {
   }
 
   const timeline = message.timeline ?? [];
+  // 交叉渲染：thinking 段与工具段按真实执行顺序交替（多段思考 + 工具穿插）
+  const crossBlocks: Array<{ kind: "thinking"; text: string; idx: number } | { kind: "tool"; entry: TimelineEntry; idx: number }> =
+    [];
+  timeline.forEach((t, i) => {
+    if (t.type === "thinking") {
+      crossBlocks.push({ kind: "thinking", text: t.content ?? "", idx: i });
+    } else if (t.type === "tool_call" || t.type === "tool_result") {
+      crossBlocks.push({ kind: "tool", entry: t, idx: i });
+    }
+  });
   return (
     <div className="flex justify-start">
       <div className="max-w-[85%] space-y-2">
-        {message.thinking ? <ThinkingBlock text={message.thinking} /> : null}
-        {timeline
-          .filter((t) => t.type === "tool_call" || t.type === "tool_result")
-          .map((t, i) => (
-            <ToolBlock key={i} entry={t} />
-          ))}
+        {crossBlocks.length > 0 ? (
+          crossBlocks.map((b) =>
+            b.kind === "thinking" ? (
+              <ThinkingBlock key={`th-${b.idx}`} text={b.text} />
+            ) : (
+              <ToolBlock key={`tl-${b.idx}`} entry={b.entry as Extract<TimelineEntry, { type: "tool_call" | "tool_result" }>} />
+            )
+          )
+        ) : message.thinking ? (
+          <ThinkingBlock text={message.thinking} />
+        ) : null}
         {message.content ? (
-          <div className="bg-white border border-gray-200 rounded-xl px-4 py-3 text-sm">
+          <div className="md-content bg-white border border-gray-200 rounded-xl px-4 py-3">
             <ReactMarkdown remarkPlugins={[remarkGfm]}>{message.content}</ReactMarkdown>
           </div>
         ) : null}

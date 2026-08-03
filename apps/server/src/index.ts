@@ -7,6 +7,7 @@ import { requireAuth } from "./auth/jwt.js";
 import { registerSessionRoutes } from "./modules/sessions/sessions.routes.js";
 import { registerChatRoutes } from "./modules/chat/chat.routes.js";
 import { registerSkillRoutes } from "./modules/skills/skills.routes.js";
+import { registerMcpRoutes } from "./modules/mcp/mcp.routes.js";
 
 const config = loadConfig();
 // 确保数据目录存在
@@ -28,6 +29,7 @@ app.addHook("onRequest", async (request, reply) => {
 registerSessionRoutes(app);
 registerChatRoutes(app);
 registerSkillRoutes(app);
+registerMcpRoutes(app);
 
 try {
   await app.listen({ port: config.port, host: "0.0.0.0" });

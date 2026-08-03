@@ -3,9 +3,10 @@ import { useEffect, useState } from "react";
 import { isAuthenticated, handleCallback, login, logout, getUserName } from "./auth";
 import DialogueView from "./views/DialogueView";
 import SkillsView from "./views/SkillsView";
+import McpView from "./views/McpView";
 import type { MessageDto } from "@br-agent/shared";
 
-type View = "dialogue" | "skills";
+type View = "dialogue" | "skills" | "mcp";
 
 export default function App() {
   const [authed, setAuthed] = useState<boolean | null>(null);
@@ -90,6 +91,14 @@ export default function App() {
           >
             技能
           </button>
+          <button
+            onClick={() => setView("mcp")}
+            className={`w-full text-left px-3 py-2 rounded-md text-sm ${
+              view === "mcp" ? "bg-blue-50 text-blue-700" : "text-gray-700 hover:bg-gray-100"
+            }`}
+          >
+            连接管理
+          </button>
         </nav>
         <div className="p-3 border-t border-gray-100">
           <button
@@ -105,8 +114,10 @@ export default function App() {
       <main className="flex-1 flex flex-col min-w-0">
         {view === "dialogue" ? (
           <DialogueView activeSessionId={activeSessionId} onSelectSession={setActiveSessionId} />
-        ) : (
+        ) : view === "skills" ? (
           <SkillsView />
+        ) : (
+          <McpView />
         )}
       </main>
     </div>

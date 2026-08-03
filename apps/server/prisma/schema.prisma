@@ -45,6 +45,21 @@ model Skill {
   @@index([owner, enabled])
 }
 
+model McpServer {
+  id        String   @id
+  name      String
+  type      String            // "http" | "stdio"
+  url       String   @default("")
+  command   String   @default("")
+  args      Json?
+  headers   Json?
+  owner     String   @default("") // 公共=""，私有=userId
+  enabled   Boolean  @default(true)
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([owner, enabled])
+}
+
 model Setting {
   key   String @id
   value String

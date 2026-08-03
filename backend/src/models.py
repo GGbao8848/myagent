@@ -87,6 +87,8 @@ class SkillInfo(BaseModel):
     name: str
     description: str
     disabled: bool = False
+    is_custom: bool = False
+    owner: str = ""
 
 
 class SkillToggleRequest(BaseModel):
@@ -159,6 +161,7 @@ class MCPServerItem(BaseModel):
     tool_count: int = 0
     tools: list[dict] = []
     error: str = ""
+    owner: str = ""
 
 
 class MCPTestResult(BaseModel):

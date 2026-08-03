@@ -7,7 +7,7 @@ import {
   FileText, Terminal, ChevronUp, ChevronDown, Loader2, Play, ChevronRight, 
   Check, Layers, Paperclip, Image, Send, X 
 } from "lucide-react";
-import { Session, Skill, UserProfile, ModelConfig, Attachment } from "../types";
+import { Session, Skill, UserProfile, ModelConfig, Attachment, TimelineStep } from "../types";
 
 interface DialogueViewProps {
   isDraggingFile: boolean;
@@ -91,6 +91,168 @@ const TypewriterText: React.FC<{ text: string; isActive: boolean }> = ({ text, i
         <span className="inline-block w-1.5 h-3.5 ml-0.5 align-middle bg-indigo-500/70 animate-pulse rounded-sm" />
       )}
     </span>
+  );
+};
+
+interface AgentFlowProps {
+  timeline: TimelineStep[];
+  isStreaming: boolean;
+  collapsedThoughts: Record<string, boolean>;
+  toggleThought: (key: string) => void;
+  renderText: (text: string) => React.ReactNode;
+  renderMarkdown: (content: string) => React.ReactNode;
+}
+
+// 智能体流水线：思考 → 工具 → 思考 → 工具 → ... → 正文
+// 思考块：当前思考打字机展开；进入下一步骤后折叠成一行，点击可展开
+// 工具块：默认折叠，展开显示参数/结果
+const AgentFlowView: React.FC<AgentFlowProps> = ({
+  timeline, isStreaming, collapsedThoughts, toggleThought, renderText, renderMarkdown,
+}) => {
+  // 识别正文：最后一个 thinking 段，其后没有 tool_call
+  const finalAnswer = (() => {
+    for (let i = timeline.length - 1; i >= 0; i--) {
+      if (timeline[i].type === "tool_call") break;
+      if (timeline[i].type === "thinking" && timeline[i].content) {
+        return timeline[i].content || "";
+      }
+    }
+    return "";
+  })();
+  // 无工具调用时的兜底：整段 thinking 即正文，但运行中先作为思考展示
+  const hasTools = timeline.some(t => t.type === "tool_call");
+  let stepsForFlow = timeline;
+  let bodyAnswer = finalAnswer;
+  if (hasTools) {
+    // 正文是最后一段 thinking，流程部分去掉它
+    for (let i = timeline.length - 1; i >= 0; i--) {
+      if (timeline[i].type === "tool_call") break;
+      if (timeline[i].type === "thinking" && timeline[i].content) {
+        stepsForFlow = timeline.slice(0, i);
+        break;
+      }
+    }
+  } else if (!isStreaming && !finalAnswer) {
+    bodyAnswer = timeline.filter(t => t.type === "thinking").map(t => t.content || "").join("\n");
+    stepsForFlow = [];
+  }
+
+  // 重建流程步骤：thinking 段聚合 + tool_call（携带其后 tool_result 的 content 作为结果）
+  const flowSteps: { type: "thought" | "tool"; key: string; content: string; name?: string; args?: unknown; result?: string }[] = [];
+  let thoughtBuf = "";
+
+  const flushThought = () => {
+    if (thoughtBuf.trim()) {
+      flowSteps.push({ type: "thought", key: `t_${flowSteps.length}`, content: thoughtBuf.trim() });
+      thoughtBuf = "";
+    }
+  };
+
+  for (const step of stepsForFlow) {
+    if (step.type === "thinking") {
+      thoughtBuf += (step.content || "") + "\n";
+    } else if (step.type === "tool_call") {
+      flushThought();
+      // 找配对的 tool_result（下一个 tool_result 的 content）
+      const idx = stepsForFlow.indexOf(step);
+      let result = "";
+      for (let j = idx + 1; j < stepsForFlow.length; j++) {
+        if (stepsForFlow[j].type === "tool_result") { result = stepsForFlow[j].content || ""; break; }
+        if (stepsForFlow[j].type === "tool_call") break;
+      }
+      flowSteps.push({
+        type: "tool", key: `tl_${flowSteps.length}`,
+        content: step.name || "",
+        name: step.name,
+        args: step.args,
+        result,
+      });
+    }
+    // tool_result 单独出现则忽略（已并入 tool）
+  }
+  flushThought();
+
+  if (flowSteps.length === 0 && !finalAnswer) return null;
+
+  let thoughtIndex = 0;
+  return (
+    <div className="w-full flex flex-col gap-2">
+      {flowSteps.map((step) => {
+        if (step.type === "thought") {
+          const idx = thoughtIndex++;
+          const key = `${step.key}`;
+          const isCurrent = isStreaming && idx === flowSteps.filter(f => f.type === "thought").length - 1;
+          // 当前思考始终展开；已完成的思考默认折叠，点击展开
+          const collapsed = !isCurrent && collapsedThoughts[key] !== false;
+
+          return (
+            <div key={key} className="rounded-lg border border-indigo-100/70 bg-indigo-50/40 overflow-hidden">
+              <button
+                onClick={() => toggleThought(key)}
+                className="w-full flex items-center gap-1.5 px-3 py-1.5 text-left cursor-pointer select-none"
+              >
+                <Brain className="w-3 h-3 text-indigo-400 shrink-0" />
+                <span className="text-[10px] font-semibold text-indigo-500 font-sans uppercase tracking-wide shrink-0">思考 {idx + 1}</span>
+                <ChevronDown className={`w-3 h-3 text-indigo-300 transition-transform shrink-0 ${collapsed || !isCurrent ? "" : "rotate-180"}`} />
+              </button>
+              {!collapsed && (
+                <div className="px-3 pb-2.5 -mt-1">
+                  {isStreaming && isCurrent ? (
+                    <div className="text-[11px] text-indigo-700/80 font-sans italic leading-relaxed">
+                      <TypewriterText text={step.content} isActive={true} />
+                    </div>
+                  ) : (
+                    <div className="text-[11px] text-slate-600 font-sans italic leading-relaxed whitespace-pre-wrap">
+                      {renderText(step.content)}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          );
+        }
+
+        // tool 步骤
+        const key = step.key;
+        return (
+          <div key={key} className="rounded-lg border border-amber-200/60 bg-amber-50/40 overflow-hidden">
+            <details className="group">
+              <summary className="flex items-center gap-1.5 px-3 py-1.5 cursor-pointer select-none list-none">
+                <Play className="w-3 h-3 text-amber-500 fill-amber-500 shrink-0" />
+                <span className="font-mono text-[11px] font-bold text-slate-700">{step.name}</span>
+                <span className="ml-auto px-1.5 py-0.5 text-[9px] bg-emerald-50 text-emerald-700 border border-emerald-100 rounded-full font-mono font-bold shrink-0">
+                  执行成功
+                </span>
+                <ChevronRight className="w-3 h-3 text-slate-400 group-open:rotate-90 transition-transform shrink-0" />
+              </summary>
+              <div className="px-3 pb-2.5 space-y-2">
+                <div className="pl-3 border-l-2 border-slate-200">
+                  <div className="text-[10px] font-semibold text-slate-400 uppercase tracking-wide mb-1">输入参数</div>
+                  <div className="font-mono text-[10px] text-slate-600 bg-slate-100/60 rounded-md p-2 overflow-x-auto whitespace-pre-wrap">
+                    {renderToolPayload(step.args)}
+                  </div>
+                </div>
+                {step.result && (
+                  <div className="pl-3 border-l-2 border-emerald-200">
+                    <div className="text-[10px] font-semibold text-emerald-600 uppercase tracking-wide mb-1">输出反馈</div>
+                    <div className="font-mono text-[10px] text-emerald-800 bg-emerald-50/40 rounded-md p-2 overflow-x-auto whitespace-pre-wrap max-h-40 overflow-y-auto">
+                      {renderToolPayload(step.result)}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </details>
+          </div>
+        );
+      })}
+      {bodyAnswer && bodyAnswer.trim() && (
+        <div className="w-full bg-white border border-slate-200/80 rounded-2xl shadow-xs overflow-hidden relative group/card hover:shadow-sm transition-shadow">
+          <div className="p-6 prose-custom text-slate-800 leading-relaxed font-sans text-sm">
+            {renderMarkdown(bodyAnswer)}
+          </div>
+        </div>
+      )}
+    </div>
   );
 };
 
@@ -334,200 +496,37 @@ export const DialogueView: React.FC<DialogueViewProps> = ({
                       </div>
                     ) : (
                       <div className="w-full max-w-3xl flex flex-col gap-3.5">
-                        {(msg.thinking || (msg.toolsUsed && msg.toolsUsed.length > 0) || msg.id === activeStreamingMessageId) && (
-                          <div className="w-full bg-slate-50/70 border border-slate-200/60 rounded-xl overflow-hidden transition-all duration-200 hover:border-slate-300 shadow-3xs">
-                            <div 
-                              onClick={() => setExpandedThinking(prev => ({ ...prev, [msg.id]: !prev[msg.id] }))}
-                              className="flex items-center justify-between px-4 py-2.5 bg-slate-50 hover:bg-slate-100/50 cursor-pointer select-none border-b border-slate-100"
-                            >
-                              <div className="flex items-center gap-2">
-                                <div className="w-5 h-5 rounded-full bg-indigo-50 flex items-center justify-center">
-                                  <Terminal className="w-3 h-3 text-indigo-600 animate-pulse" />
-                                </div>
-                                <span className="text-xs font-semibold text-slate-700 font-sans flex items-center gap-1.5">
-                                  <span>AI Agent 运行记录与链路分析</span>
-                                  {msg.toolsUsed && msg.toolsUsed.length > 0 && (
-                                    <span className="px-1.5 py-0.2 bg-indigo-100 text-indigo-800 rounded text-[9px] font-mono font-bold">
-                                      调用 {msg.toolsUsed.length} 个工具
-                                    </span>
-                                  )}
-                                </span>
-                              </div>
-                              <div className="flex items-center gap-1.5">
-                                <span className="text-[10px] text-slate-400 font-sans font-medium">
-                                  {expandedThinking[msg.id] ? "收起日志" : "展开执行路径"}
-                                </span>
-                                {expandedThinking[msg.id] ? (
-                                  <ChevronUp className="w-3.5 h-3.5 text-slate-400" />
-                                ) : (
-                                  <ChevronDown className="w-3.5 h-3.5 text-slate-400" />
-                                )}
-                              </div>
-                            </div>
-
-                            {expandedThinking[msg.id] && (
-                              <div className="p-5 bg-white border-t border-slate-100 space-y-4">
-                                <div className="flex items-center gap-1.5 text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">
-                                  <Brain className="w-3.5 h-3.5 text-indigo-500" />
-                                  <span>时序链路执行轨迹 (Chronological Execution Path)</span>
-                                </div>
-
-                                {(() => {
-                                  const isStreaming = msg.id === activeStreamingMessageId;
-                                  const thoughts = msg.thinking ? msg.thinking.split('\n').filter(line => line.trim()) : [];
-                                  const tools = msg.toolsUsed || [];
-                                  const timeline: { type: "thought" | "tool"; text: string; tool?: any }[] = [];
-
-                                  // 运行中：thought 文字统一由末尾打字机流式展示，timeline 只放工具块，避免重复
-                                  if (isStreaming) {
-                                    tools.forEach(tool => {
-                                      timeline.push({ type: "tool", text: `调用外部系统接口: ${tool.name}`, tool });
-                                    });
-                                  } else if (thoughts.length > 0 && tools.length > 0) {
-                                    const splitIndex = Math.max(1, Math.min(Math.floor(thoughts.length / 2), thoughts.length - 1));
-
-                                    thoughts.slice(0, splitIndex).forEach(t => {
-                                      timeline.push({ type: "thought", text: t });
-                                    });
-
-                                    tools.forEach(tool => {
-                                      timeline.push({ type: "tool", text: `调用外部系统接口: ${tool.name}`, tool });
-                                    });
-
-                                    thoughts.slice(splitIndex).forEach(t => {
-                                      timeline.push({ type: "thought", text: t });
-                                    });
-                                  } else if (thoughts.length > 0) {
-                                    thoughts.forEach(t => {
-                                      timeline.push({ type: "thought", text: t });
-                                    });
-                                  } else if (tools.length > 0) {
-                                    tools.forEach(tool => {
-                                      timeline.push({ type: "tool", text: `调用外部系统接口: ${tool.name}`, tool });
-                                    });
+                        {(msg.timeline || (msg.thinking && msg.thinking.trim()) || (msg.toolsUsed && msg.toolsUsed.length > 0) || msg.id === activeStreamingMessageId) && (
+                          <AgentFlowView
+                            timeline={msg.timeline || []}
+                            isStreaming={msg.id === activeStreamingMessageId}
+                            collapsedThoughts={expandedThinking}
+                            toggleThought={(key) => setExpandedThinking(prev => ({ ...prev, [key]: !prev[key] }))}
+                            renderText={renderFormattedTextWithSkills}
+                            renderMarkdown={(content) => (
+                              <Markdown
+                                remarkPlugins={[remarkGfm]}
+                                components={{
+                                  a: ({ href, children }) => {
+                                    if (href && href.startsWith("skill:")) {
+                                      return (
+                                        <span className="text-emerald-600 font-extrabold bg-emerald-50 border border-emerald-200/80 px-1.5 py-0.5 rounded-md mx-1 shadow-3xs inline-flex items-center gap-1.5 align-baseline select-all">
+                                          <Layers className="w-3.5 h-3.5 text-emerald-500 inline animate-pulse" />
+                                          {children}
+                                        </span>
+                                      );
+                                    }
+                                    return <a href={href} className="text-indigo-600 hover:underline" target="_blank" rel="noopener noreferrer">{children}</a>;
                                   }
-
-                                  return (
-                                    <div className="relative border-l border-slate-200 ml-4 pl-6 space-y-5 py-2">
-                                      {timeline.map((event, idx) => {
-                                        const isTool = event.type === "tool";
-                                        const isCurrentActiveStep = msg.id === activeStreamingMessageId && idx === timeline.length - 1;
-                                        
-                                        return (
-                                          <div key={idx} className="relative group/step">
-                                            {isCurrentActiveStep ? (
-                                              <div className="absolute -left-[32px] top-1 w-3 h-3 flex items-center justify-center bg-white rounded-full">
-                                                <Loader2 className={`w-3.5 h-3.5 animate-spin ${isTool ? "text-amber-500" : "text-indigo-500"}`} />
-                                              </div>
-                                            ) : (
-                                              <div className={`absolute -left-[31px] top-1.5 w-2.5 h-2.5 rounded-full border-2 transition-colors duration-200 ${
-                                                isTool 
-                                                  ? "bg-amber-500 border-white ring-4 ring-amber-50/50 group-hover/step:ring-amber-100" 
-                                                  : "bg-indigo-500 border-white ring-4 ring-indigo-50/50 group-hover/step:ring-indigo-100"
-                                              }`} />
-                                            )}
-                                            
-                                            {isTool ? (
-                                              <div className={`bg-slate-50/60 border rounded-xl p-3.5 space-y-2.5 shadow-3xs transition-all duration-200 ${
-                                                isCurrentActiveStep 
-                                                  ? "border-amber-400 bg-amber-50/10 shadow-xs ring-2 ring-amber-500/15" 
-                                                  : "border-slate-200/60 hover:border-slate-300"
-                                              }`}>
-                                                <div className="flex items-center justify-between">
-                                                  <div className="flex items-center gap-2">
-                                                    <div className="w-5 h-5 rounded bg-amber-500/10 flex items-center justify-center text-amber-600">
-                                                      <Play className={`w-3 h-3 fill-amber-600 ${isCurrentActiveStep ? "animate-pulse" : ""}`} />
-                                                    </div>
-                                                    <span className={`font-mono text-xs font-bold ${isCurrentActiveStep ? "text-amber-700" : "text-slate-800"}`}>
-                                                      {event.tool.name}
-                                                    </span>
-                                                  </div>
-                                                  {isCurrentActiveStep ? (
-                                                    <span className="px-2 py-0.5 text-[9px] bg-amber-50 text-amber-700 border border-amber-200 rounded-full font-mono font-bold animate-pulse">
-                                                      工具执行中...
-                                                    </span>
-                                                  ) : (
-                                                    <span className="px-2 py-0.5 text-[9px] bg-emerald-50 text-emerald-700 border border-emerald-100 rounded-full font-mono font-bold">
-                                                      执行成功
-                                                    </span>
-                                                  )}
-                                                </div>
-                                                
-                                                <div className="space-y-2 pt-2 border-t border-slate-200/30 text-[11px] text-slate-600">
-                                                  <details className="group" open={isCurrentActiveStep}>
-                                                    <summary className="list-none flex items-center gap-1.5 cursor-pointer text-slate-500 hover:text-slate-800 font-medium select-none">
-                                                      <ChevronRight className="w-3.5 h-3.5 group-open:rotate-90 transition-transform text-slate-400" />
-                                                      <span>输入参数 (Parameters)</span>
-                                                    </summary>
-                                                    <div className="mt-1.5 pl-3 border-l-2 border-slate-200 py-1 font-mono text-[10px] text-slate-600 overflow-x-auto whitespace-pre-wrap bg-slate-100/50 rounded-md p-2">
-                                                      {renderToolPayload(event.tool.args)}
-                                                    </div>
-                                                  </details>
-                                                  
-                                                  {event.tool.result && (
-                                                    <details className="group">
-                                                      <summary className="list-none flex items-center gap-1.5 cursor-pointer text-slate-500 hover:text-slate-800 font-medium select-none mt-1">
-                                                        <ChevronRight className="w-3.5 h-3.5 group-open:rotate-90 transition-transform text-slate-400" />
-                                                        <span>输出反馈 (Result Context)</span>
-                                                      </summary>
-                                                      <div className="mt-1.5 pl-3 border-l-2 border-emerald-200 py-1 font-mono text-[10px] text-emerald-800 overflow-x-auto bg-emerald-50/40 rounded-md p-2">
-                                                        {renderToolPayload(event.tool.result)}
-                                                      </div>
-                                                    </details>
-                                                  )}
-                                                </div>
-                                              </div>
-                                            ) : (
-                                              <div className="flex flex-col gap-0.5 pl-1">
-                                                <span className={`text-xs font-medium leading-relaxed font-sans transition-all duration-200 ${
-                                                  isCurrentActiveStep 
-                                                    ? "text-indigo-600 font-bold bg-indigo-50/40 border-l-2 border-indigo-500 pl-2 py-0.5" 
-                                                    : "text-slate-700"
-                                                }`}>
-                                                  {renderFormattedTextWithSkills(event.text)}
-                                                </span>
-                                              </div>
-                                            )}
-                                          </div>
-                                        );
-                                      })}
-                                      
-                                      {msg.id === activeStreamingMessageId ? (
-                                        <div className="relative group/step">
-                                          <div className="absolute -left-[32px] top-1 w-3 h-3 flex items-center justify-center bg-white rounded-full">
-                                            <Loader2 className="w-3.5 h-3.5 text-indigo-500 animate-spin" />
-                                          </div>
-                                          <div className="flex flex-col gap-1 pl-1">
-                                            <span className="text-xs font-medium text-slate-500 font-sans leading-relaxed">
-                                              {msg.thinking && msg.thinking.trim() ? (
-                                                <TypewriterText text={msg.thinking} isActive={msg.id === activeStreamingMessageId} />
-                                              ) : (
-                                                <>
-                                                  正在理解任务并规划执行路径...
-                                                  <span className="inline-block w-1.5 h-3.5 ml-0.5 align-middle bg-indigo-500/70 animate-pulse rounded-sm" />
-                                                </>
-                                              )}
-                                            </span>
-                                          </div>
-                                        </div>
-                                      ) : (
-                                        <div className="relative group/step">
-                                          <div className="absolute -left-[31px] top-1.5 w-2.5 h-2.5 rounded-full bg-emerald-500 border-white ring-4 ring-emerald-50/50" />
-                                          <div className="flex flex-col gap-0.5 pl-1">
-                                            <span className="text-xs text-emerald-700 font-semibold font-sans">
-                                              大模型成果整合就绪
-                                            </span>
-                                          </div>
-                                        </div>
-                                      )}
-                                    </div>
-                                  );
-                                })()}
-                              </div>
+                                }}
+                              >
+                                {preprocessMarkdown(content)}
+                              </Markdown>
                             )}
-                          </div>
+                          />
                         )}
 
+                        {!msg.timeline && (
                         <div className="w-full bg-white border border-slate-200/80 rounded-2xl shadow-xs overflow-hidden relative group/card hover:shadow-sm transition-shadow max-w-3xl">
                           <div className="absolute top-3 right-3 opacity-0 group-hover/card:opacity-100 transition-opacity duration-200 z-10">
                             <button
@@ -570,6 +569,7 @@ export const DialogueView: React.FC<DialogueViewProps> = ({
                             </Markdown>
                           </div>
                         </div>
+                        )}
                       </div>
                     )}
                   </div>

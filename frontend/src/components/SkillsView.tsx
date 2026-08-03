@@ -101,8 +101,13 @@ export const SkillsView: React.FC<SkillsViewProps> = ({
                   <h3 className="font-display font-semibold text-sm text-slate-800">{skill.name}</h3>
                   <div className="flex items-center gap-2">
                     {renderCategoryTag(skill.category)}
-                    
-                    <button 
+                    {skill.isCustom ? (
+                      <span className="px-1.5 py-0.5 text-[9px] font-medium rounded bg-violet-50 text-violet-700 border border-violet-200">私有</span>
+                    ) : (
+                      <span className="px-1.5 py-0.5 text-[9px] font-medium rounded bg-slate-100 text-slate-600 border border-slate-200">公共</span>
+                    )}
+
+                    <button
                       onClick={() => handleToggleSkill(skill.id)}
                       className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-hidden ${
                         skill.enabled ? "bg-slate-900" : "bg-slate-200"

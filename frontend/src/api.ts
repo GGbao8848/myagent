@@ -128,6 +128,7 @@ export interface MCPServerInfo {
   tool_count: number;
   tools: Array<{ name: string; description: string; parameters?: string[] }>;
   error: string;
+  owner: string;
 }
 
 export async function listMcpServers(): Promise<MCPServerInfo[]> {

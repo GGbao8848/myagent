@@ -31,6 +31,28 @@ import LoginPage from "./components/LoginPage";
 import { isLoggedIn as hasAuthToken, getStoredUser, logout, startLogin, handleCallback } from "./auth";
 import { apiFetch, createSession, getSession, listSessions, deleteSession, streamChat, getSettings, listMcpServers, addMcpServer, deleteMcpServer, toggleMcpServer, testMcpServer, listSkills, uploadSkill, toggleSkill, deleteSkillApi } from "./api";
 
+// 后端消息 → 前端 Message：解析 metadata.timeline 为流水线
+function mapBackendMessage(m: any): Message {
+  const rawTimeline = (m.metadata as any)?.timeline;
+  const timeline = Array.isArray(rawTimeline)
+    ? rawTimeline.map((t: any) => ({
+        type: t.type,
+        content: t.content ?? "",
+        name: t.name ?? "",
+        args: t.args ?? undefined,
+        id: t.id ?? "",
+      }))
+    : undefined;
+  return {
+    id: "msg_" + m.id,
+    role: m.role as any,
+    content: m.content,
+    timestamp: new Date(m.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+    thinking: timeline?.filter((t: any) => t.type === "thinking").map((t: any) => t.content).join("\n") || "",
+    timeline,
+  };
+}
+
 export default function App() {
   // --- Page Navigation State ---
   const [activeTab, setActiveTab] = useState<"dialogue" | "skills" | "memory" | "scheduler" | "mcp" | "settings">("dialogue");
@@ -179,13 +201,7 @@ export default function App() {
           // 加载第一个会话的详情
           const detail = await getSession(mapped[0].id);
           if (cancelled) return;
-          const msgs: Message[] = detail.messages.map(m => ({
-            id: "msg_" + m.id,
-            role: m.role as any,
-            content: m.content,
-            timestamp: new Date(m.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
-            thinking: (m.metadata as any)?.timeline?.map((t: any) => t.content).join("\n") || "",
-          }));
+          const msgs: Message[] = detail.messages.map(mapBackendMessage);
           setSessions(prev => prev.map((s, i) => i === 0 ? { ...s, messages: msgs } : s));
           setActiveSessionId(mapped[0].id);
         }
@@ -238,6 +254,7 @@ export default function App() {
           status: m.connected ? "connected" : (m.enabled ? "disconnected" : "disconnected"),
           tools: m.tools || [],
           url: m.url,
+          owner: m.owner,
         }));
         setMcpServers(mapped);
       } catch (e) {
@@ -779,7 +796,15 @@ export default function App() {
                 ...s,
                 messages: s.messages.map(m => {
                   if (m.id === aiMsg.id) {
-                    return { ...m, thinking: (m.thinking || "") + evt.content };
+                    const tl = [...(m.timeline || [])];
+                    // 追加到当前 thinking 段
+                    const last = tl[tl.length - 1];
+                    if (last && last.type === "thinking") {
+                      tl[tl.length - 1] = { ...last, content: (last.content || "") + evt.content };
+                    } else {
+                      tl.push({ type: "thinking", content: evt.content });
+                    }
+                    return { ...m, timeline: tl, thinking: (m.thinking || "") + evt.content };
                   }
                   return m;
                 })
@@ -799,8 +824,11 @@ export default function App() {
                 ...s,
                 messages: s.messages.map(m => {
                   if (m.id === aiMsg.id) {
+                    const tl = [...(m.timeline || [])];
+                    tl.push({ type: "tool_call", name: evt.tool_name, args: argsText });
                     return {
                       ...m,
+                      timeline: tl,
                       toolsUsed: [...(m.toolsUsed || []), { name: evt.tool_name, args: argsText, status: "running" as const }],
                       thinking: (m.thinking || "") + toolInfo
                     };
@@ -818,13 +846,21 @@ export default function App() {
                 ...s,
                 messages: s.messages.map(m => {
                   if (m.id === aiMsg.id) {
+                    const tl = [...(m.timeline || [])];
+                    // 补 result 到最后一个未完成的 tool_call
+                    for (let i = tl.length - 1; i >= 0; i--) {
+                      if (tl[i].type === "tool_call" && !tl[i].content) {
+                        tl[i] = { ...tl[i], content: evt.content };
+                        break;
+                      }
+                    }
                     const tools = [...(m.toolsUsed || [])];
                     const last = tools[tools.length - 1];
                     if (last) {
                       last.status = "success";
                       last.result = evt.content;
                     }
-                    return { ...m, toolsUsed: tools };
+                    return { ...m, timeline: tl, toolsUsed: tools };
                   }
                   return m;
                 })
@@ -851,13 +887,7 @@ export default function App() {
 
       // 流结束后重新拉取会话，获取完整 assistant 消息
       const refreshed = await getSession(currentSessionId);
-      const freshMessages: Message[] = refreshed.messages.map(m => ({
-        id: "msg_" + m.id,
-        role: m.role as any,
-        content: m.content,
-        timestamp: new Date(m.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
-        thinking: ((m.metadata as any)?.timeline as any[])?.map((t: any) => t.content).join("\n") || "",
-      }));
+      const freshMessages: Message[] = refreshed.messages.map(mapBackendMessage);
 
       setSessions(prevSessions => {
         return prevSessions.map(s => {
@@ -901,15 +931,15 @@ export default function App() {
     }, 50);
   };
 
-  // 2. New Chat Session
-  const handleCreateNewSession = () => {
+  // 2. New Chat Session（后端真实创建，避免本地假 ID 导致重复/无法删除）
+  const handleCreateNewSession = async () => {
     // Prevent creating a new session if there is already an empty one
     const emptySession = sessions.find(s => s.messages.length === 0);
     if (emptySession) {
       setActiveSessionId(emptySession.id);
       setActiveTab("dialogue");
       showToast("已有空白会话，请直接在此输入开始对话", "warning");
-      
+
       // Focus on chat textarea
       setTimeout(() => {
         const textarea = document.getElementById("chat-textarea") as HTMLTextAreaElement | null;
@@ -918,17 +948,21 @@ export default function App() {
       return;
     }
 
-    const newId = "session_" + Date.now();
-    const newSess: Session = {
-      id: newId,
-      title: "新建会话 " + (sessions.length + 1),
-      model: modelConfigs.find(m => m.id === selectedModelId)?.name || "Gemini 3.5 Flash",
-      createdAt: new Date().toISOString().split('T')[0],
-      messages: []
-    };
-    setSessions([newSess, ...sessions]);
-    setActiveSessionId(newId);
-    setActiveTab("dialogue");
+    try {
+      const created = await createSession();
+      const newSess: Session = {
+        id: created.id,
+        title: created.title,
+        model: modelConfigs.find(m => m.id === selectedModelId)?.name || "Gemini 3.5 Flash",
+        createdAt: created.created_at.split('T')[0],
+        messages: []
+      };
+      setSessions([newSess, ...sessions]);
+      setActiveSessionId(created.id);
+      setActiveTab("dialogue");
+    } catch (e) {
+      showToast("创建会话失败", "warning");
+    }
   };
 
   // 3. Delete Session

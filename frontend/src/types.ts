@@ -15,6 +15,14 @@ export interface Attachment {
   isImage?: boolean;
 }
 
+export interface TimelineStep {
+  type: "thinking" | "tool_call" | "tool_result";
+  content?: string;
+  name?: string;
+  args?: unknown;
+  id?: string;
+}
+
 export interface Message {
   id: string;
   role: Role;
@@ -22,6 +30,7 @@ export interface Message {
   timestamp: string;
   thinking?: string; // The thinking/reasoning process of the AI
   toolsUsed?: ToolInvocation[]; // Simulated or real tool calls
+  timeline?: TimelineStep[]; // 后端 timeline 完整流水线（thinking/tool_call/tool_result 交错）
   attachments?: Attachment[];
 }
 
@@ -80,6 +89,7 @@ export interface MCPServer {
   headers?: Record<string, string>;
   url?: string;
   command?: string;
+  owner?: string; // '' = 公共，非空 = 用户私有
 }
 
 export interface ModelConfig {

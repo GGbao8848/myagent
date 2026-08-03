@@ -104,6 +104,11 @@ export const McpView: React.FC<McpViewProps> = ({
                         <span className="px-1.5 py-0.2 text-[9px] font-mono rounded bg-slate-100 text-slate-600 border border-slate-150 uppercase shrink-0 whitespace-nowrap">
                           {server.type}
                         </span>
+                        {server.owner ? (
+                          <span className="px-1.5 py-0.2 text-[9px] font-medium rounded bg-violet-50 text-violet-700 border border-violet-200 shrink-0 whitespace-nowrap">私有</span>
+                        ) : (
+                          <span className="px-1.5 py-0.2 text-[9px] font-medium rounded bg-slate-100 text-slate-600 border border-slate-200 shrink-0 whitespace-nowrap">公共</span>
+                        )}
                       </div>
                       <p className="text-[10px] font-mono text-slate-400 mt-1 truncate" title={server.urlOrCommand}>
                         {server.urlOrCommand}

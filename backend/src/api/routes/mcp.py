@@ -51,7 +51,7 @@ def _get_shared_manager() -> MCPClientManager:
     return mgr
 
 
-def _status_to_item(status) -> MCPServerItem:
+def _status_to_item(status, owner: str = "") -> MCPServerItem:
     """将 MCPServerStatus 转为 API 响应模型。"""
     return MCPServerItem(
         id=status.config.id,
@@ -63,6 +63,7 @@ def _status_to_item(status) -> MCPServerItem:
         tool_count=len(status.tools),
         tools=[_simplify_tool(t) for t in status.tools],
         error=status.error or "",
+        owner=owner,
     )
 
 
@@ -112,13 +113,14 @@ async def list_servers(user: dict = Depends(get_current_user)):
         # 找运行时的连接状态
         status = next((s for s in mgr.servers if s.config.id == row["id"]), None)
         if status:
-            items.append(_status_to_item(status))
+            items.append(_status_to_item(status, owner=row["owner"]))
         else:
             # PG 有但运行时未连接 → 显示未连接
             items.append(MCPServerItem(
                 id=row["id"], name=row["name"], type=row["type"],
                 url=row["url"], enabled=row["enabled"],
                 connected=False, tool_count=0, tools=[], error="",
+                owner=row["owner"],
             ))
     return items
 
@@ -175,7 +177,9 @@ async def add_server(body: MCPServerAddRequest, user: dict = Depends(get_current
     except Exception:
         logger.warning("MCP 工具同步失败", exc_info=True)
 
-    return [_status_to_item(s) for s in mgr.servers]
+    # 返回时带 owner（从 DB 补全，公共/私有标识）
+    owner_map = {r["id"]: r["owner"] for r in db.list_mcp_servers(owner)}
+    return [_status_to_item(s, owner=owner_map.get(s.config.id, "")) for s in mgr.servers]
 
 
 @router.delete("/servers/{server_id}")
@@ -260,4 +264,4 @@ async def toggle_server(server_id: str, user: dict = Depends(get_current_user)):
     # 动态更新 Agent 工具
     _resync_agent_tools(mgr)
 
-    return _status_to_item(mgr.get_status(server_id))
+    return _status_to_item(mgr.get_status(server_id), owner=row["owner"])

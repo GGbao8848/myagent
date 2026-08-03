@@ -93,6 +93,7 @@ export async function runAgent(opts: RunAgentOptions): Promise<RunAgentResult> {
       if (opts.signal?.aborted) return;
       const m = msg as {
         toolCalls?: AsyncIterable<unknown>;
+        reasoning?: AsyncIterable<string>;
         text: AsyncIterable<string>;
       };
       // 探测本消息是否携带工具调用（可重复迭代）
@@ -102,6 +103,28 @@ export async function runAgent(opts: RunAgentOptions): Promise<RunAgentResult> {
           for await (const _tc of m.toolCalls) {
             hasTool = true;
             break;
+          }
+        }
+      } catch {
+        /* 忽略 */
+      }
+
+      // deepseek 等模型：思考在 reasoning 投影里（无 <think> 标签），text 是纯正文
+      // qwen：无 reasoning，text 含 <think>...</think>，按 boundary 划分
+      let reasoningConsumed = false;
+      try {
+        if (m.reasoning) {
+          for await (const chunk of m.reasoning) {
+            if (opts.signal?.aborted) break;
+            if (!chunk) continue;
+            reasoningConsumed = true;
+            // 工具轮次：思考归 thinking；否则也归 thinking（reasoning 就是思考）
+            const cleaned = chunk.replace(/<\/?think>/g, "");
+            if (cleaned) {
+              thinkingOut += cleaned;
+              currentThinking += cleaned;
+              await emit({ event: "thinking", content: cleaned });
+            }
           }
         }
       } catch {
@@ -122,12 +145,14 @@ export async function runAgent(opts: RunAgentOptions): Promise<RunAgentResult> {
 
         let thinkPart = "";
         let contentPart = "";
-        if (hasTool || boundary < 0) {
+        if (hasTool || (!reasoningConsumed && boundary < 0)) {
+          // 工具轮次：全部当思考；无 reasoning 且无 </think>（qwen 思考段未闭合）：当思考
           thinkPart = chunk;
-        } else if (chunkStart >= boundary) {
+        } else if (reasoningConsumed || chunkStart >= boundary) {
+          // deepseek（reasoning 已消费）：text 全当正文；或 qwen 正文段
           contentPart = chunk;
         } else {
-          // chunk 跨越 </think> 边界：前半思考、后半正文（去掉正文前导空白）
+          // qwen chunk 跨越 </think> 边界：前半思考、后半正文（去掉正文前导空白）
           thinkPart = chunk.slice(0, boundary - chunkStart);
           contentPart = chunk.slice(boundary - chunkStart).replace(/^\s+/, "");
         }

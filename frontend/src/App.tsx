@@ -16,7 +16,7 @@ import {
   MCPServer, ModelConfig, UserProfile, ScheduleTask
 } from "./types";
 import {
-  initialUserProfile, initialSkills, initialMemories,
+  initialUserProfile, initialMemories,
   initialMcpServers, initialSessions,
   initialScheduleTasks
 } from "./mockData";
@@ -29,7 +29,7 @@ import { SettingsView } from "./components/SettingsView";
 import { ApiDocsModal } from "./components/modals/ApiDocsModal";
 import LoginPage from "./components/LoginPage";
 import { isLoggedIn as hasAuthToken, getStoredUser, logout, startLogin, handleCallback } from "./auth";
-import { apiFetch, createSession, getSession, listSessions, deleteSession, streamChat, getSettings, listMcpServers, addMcpServer, deleteMcpServer, toggleMcpServer } from "./api";
+import { apiFetch, createSession, getSession, listSessions, deleteSession, streamChat, getSettings, listMcpServers, addMcpServer, deleteMcpServer, toggleMcpServer, listSkills, uploadSkill, toggleSkill, deleteSkillApi } from "./api";
 
 export default function App() {
   // --- Page Navigation State ---
@@ -134,10 +134,7 @@ export default function App() {
     logout();
   };
 
-  const [skills, setSkills] = useState<Skill[]>(() => {
-    const saved = localStorage.getItem("office_ai_skills");
-    return saved ? JSON.parse(saved) : initialSkills;
-  });
+  const [skills, setSkills] = useState<Skill[]>([]);
 
   const [memories, setMemories] = useState<MemoryItem[]>(() => {
     const saved = localStorage.getItem("office_ai_memories");
@@ -245,6 +242,28 @@ export default function App() {
         setMcpServers(mapped);
       } catch (e) {
         console.error("加载 MCP 服务器失败:", e);
+      }
+    })();
+  }, [isLoggedIn]);
+
+  // 登录后从后端加载技能列表（公共 + 当前用户私有）
+  useEffect(() => {
+    if (!hasAuthToken()) return;
+    (async () => {
+      try {
+        const list = await listSkills(true);
+        const mapped: Skill[] = list.map((s) => ({
+          id: s.id,
+          name: s.name,
+          description: s.description,
+          category: (s.is_custom ? "custom" : "document") as any,
+          enabled: !s.disabled,
+          isCustom: !!s.is_custom,
+          parameters: [],
+        }));
+        setSkills(mapped);
+      } catch (e) {
+        console.error("加载技能失败:", e);
       }
     })();
   }, [isLoggedIn]);
@@ -482,10 +501,6 @@ export default function App() {
   useEffect(() => {
     localStorage.setItem("office_ai_profile", JSON.stringify(userProfile));
   }, [userProfile]);
-
-  useEffect(() => {
-    localStorage.setItem("office_ai_skills", JSON.stringify(skills));
-  }, [skills]);
 
   useEffect(() => {
     localStorage.setItem("office_ai_memories", JSON.stringify(memories));
@@ -928,9 +943,26 @@ export default function App() {
     }
   };
 
-  // 4. Toggle Skill Enable/Disable
+  // 4. Toggle Skill Enable/Disable（公共技能持久化到后端，私有技能仅本地状态）
   const handleToggleSkill = (id: string) => {
-    setSkills(prev => prev.map(s => s.id === id ? { ...s, enabled: !s.enabled } : s));
+    const target = skills.find(s => s.id === id);
+    if (target && !target.isCustom) {
+      toggleSkill(id, target.enabled)
+        .then(() => setSkills(prev => prev.map(s => s.id === id ? { ...s, enabled: !s.enabled } : s)))
+        .catch(err => console.error("切换技能失败:", err));
+    } else {
+      setSkills(prev => prev.map(s => s.id === id ? { ...s, enabled: !s.enabled } : s));
+    }
+  };
+
+  // 4b. Delete Custom Skill（真实删除，仅私有技能）
+  const handleDeleteSkill = async (id: string) => {
+    try {
+      await deleteSkillApi(id);
+      setSkills(prev => prev.filter(s => s.id !== id));
+    } catch (err) {
+      console.error("删除技能失败:", err);
+    }
   };
 
   // 5. Update Skill Parameter Value
@@ -946,41 +978,31 @@ export default function App() {
     }));
   };
 
-  // 6. Upload Custom Skill package
-  const handleUploadSkill = (fileName: string) => {
+  // 6. Upload Custom Skill package（真实上传）
+  const handleUploadSkill = async (file: File) => {
     setUploadProgress(10);
-    const interval = setInterval(() => {
-      setUploadProgress(p => {
-        if (p === null) return null;
-        if (p >= 100) {
-          clearInterval(interval);
-          // Call API
-          apiFetch("/api/skills/upload", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ fileName, fileSize: "240KB" })
-          })
-            .then(res => res.json())
-            .then(data => {
-              if (data.skill) {
-                setSkills(prev => [...prev, data.skill]);
-                setUploadSuccessMsg(data.message);
-                setUploadProgress(null);
-                setTimeout(() => {
-                  setShowUploadSkillModal(false);
-                  setUploadSuccessMsg(null);
-                }, 1500);
-              }
-            })
-            .catch(err => {
-              console.error(err);
-              setUploadProgress(null);
-            });
-          return 100;
-        }
-        return p + 30;
-      });
-    }, 200);
+    try {
+      const { skill } = await uploadSkill(file);
+      setSkills(prev => [...prev, {
+        id: skill.id,
+        name: skill.name,
+        description: skill.description,
+        category: "custom",
+        enabled: !skill.disabled,
+        isCustom: true,
+        parameters: [],
+      }]);
+      setUploadProgress(100);
+      setUploadSuccessMsg("技能包上传成功！已安装到您的私有技能库。");
+      setTimeout(() => {
+        setShowUploadSkillModal(false);
+        setUploadSuccessMsg(null);
+        setUploadProgress(null);
+      }, 1500);
+    } catch (err) {
+      console.error(err);
+      setUploadProgress(null);
+    }
   };
 
   // 7. Add Fact Memory
@@ -2057,13 +2079,13 @@ export default function App() {
                 2. SKILLS VIEW
                 ======================================================== */}
             {activeTab === "skills" && (
-              <SkillsView 
+              <SkillsView
                 showTips={showTips}
                 toggleShowTips={toggleShowTips}
                 setShowUploadSkillModal={setShowUploadSkillModal}
                 skills={skills}
                 handleToggleSkill={handleToggleSkill}
-                setSkills={setSkills}
+                handleDeleteSkill={handleDeleteSkill}
               />
             )}
 
@@ -2194,7 +2216,7 @@ export default function App() {
                     setIsDraggingSkill(false);
                     const files = e.dataTransfer.files;
                     if (files && files.length > 0) {
-                      handleUploadSkill(files[0].name);
+                      handleUploadSkill(files[0]);
                     }
                   }}
                   onClick={() => {
@@ -2204,7 +2226,7 @@ export default function App() {
                     input.onchange = (e: any) => {
                       const files = e.target.files;
                       if (files && files.length > 0) {
-                        handleUploadSkill(files[0].name);
+                        handleUploadSkill(files[0]);
                       }
                     };
                     input.click();

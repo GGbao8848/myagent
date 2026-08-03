@@ -200,25 +200,6 @@ def _extract_args_hint(source: str) -> str:
 # ------------------------------------------------------------------
 
 
-def list_skills_raw(show_all: bool = False) -> list[dict]:
-    """返回技能列表的结构化数据（供 API 使用）。"""
-    if not SKILLS_DIR.exists():
-        return []
-
-    result: list[dict] = []
-    for skill_file in sorted(SKILLS_DIR.rglob("SKILL.md")):
-        skill_id, name, desc, disabled = _parse_skill(skill_file)
-        if disabled and not show_all:
-            continue
-        result.append({
-            "id": skill_id,
-            "name": name,
-            "description": desc,
-            "disabled": disabled,
-        })
-    return result
-
-
 def set_skill_disabled(skill_id: str, disabled: bool) -> bool:
     """启用或禁用一个 skill（修改 SKILL.md 的 frontmatter）。"""
     skill_md = SKILLS_DIR / skill_id / "SKILL.md"
@@ -241,19 +222,75 @@ def set_skill_disabled(skill_id: str, disabled: bool) -> bool:
     return False
 
 
-def delete_skill(skill_id: str) -> bool:
-    """删除一个 skill（删除整个 skill 目录）。"""
-    skill_dir = SKILLS_DIR / skill_id
+def delete_skill(skill_id: str, owner: str = "") -> bool:
+    """删除一个 skill（删除整个 skill 目录）。owner 指定时仅删私有技能。"""
+    base_dir = SKILLS_DIR if not owner else get_user_skills_dir(owner)
+    skill_dir = base_dir / skill_id
     if not skill_dir.exists() or not (skill_dir / "SKILL.md").exists():
         return False
     shutil.rmtree(skill_dir)
+    # 同步删除 PG 元数据
+    try:
+        from src.api.deps import get_db
+        get_db().delete_skill(skill_id, owner)
+    except Exception:
+        pass
     return True
 
 
-def install_skill_from_zip(zip_data: bytes, skill_id: str | None = None) -> tuple[str, dict]:
+def get_user_skills_dir(user_id: str):
+    """获取用户私有技能目录。"""
+    from src.config import PROJECT_ROOT
+    return PROJECT_ROOT / "data" / "skills" / user_id
+
+
+def list_skills_raw(show_all: bool = False, owner: str = "") -> list[dict]:
+    """返回技能列表（公共 + 当前用户私有）。"""
+    result: list[dict] = []
+
+    def _scan(base_dir, is_private: bool):
+        if not base_dir.exists():
+            return
+        for skill_file in sorted(base_dir.rglob("SKILL.md")):
+            skill_id, name, desc, disabled = _parse_skill(skill_file)
+            if disabled and not show_all:
+                continue
+            result.append({
+                "id": skill_id,
+                "name": name,
+                "description": desc,
+                "disabled": disabled,
+                "is_custom": is_private,
+                "owner": owner if is_private else "",
+            })
+
+    # 公共技能
+    _scan(SKILLS_DIR, is_private=False)
+    # 当前用户私有技能
+    if owner:
+        _scan(get_user_skills_dir(owner), is_private=True)
+
+    # 与 PG 元数据同步（首次扫描时录入，保持 id/名称一致）
+    try:
+        from src.api.deps import get_db
+        db = get_db()
+        for s in result:
+            db.save_skill({
+                "id": s["id"], "name": s["name"], "description": s["description"],
+                "category": "custom" if s["is_custom"] else "document",
+                "owner": s["owner"], "enabled": not s["disabled"], "is_custom": s["is_custom"],
+            })
+    except Exception:
+        pass  # 元数据同步失败不影响列表展示
+
+    return result
+
+
+def install_skill_from_zip(zip_data: bytes, skill_id: str | None = None, owner: str = "") -> tuple[str, dict]:
     """从 zip 字节流安装 skill。
 
     要求 zip 内必须包含 SKILL.md（可以嵌套在一层目录中）。
+    owner='' 安装为公共技能，owner=user_id 安装为用户私有技能。
     返回 (skill_id, skill_info_dict)。
     """
     import io
@@ -283,8 +320,9 @@ def install_skill_from_zip(zip_data: bytes, skill_id: str | None = None) -> tupl
         # 确定 zip 根前缀
         prefix = skill_md_path.rsplit("SKILL.md", 1)[0]
 
-        # 目标目录
-        target_dir = SKILLS_DIR / final_id
+        # 目标目录（公共或私有）
+        base_dir = SKILLS_DIR if not owner else get_user_skills_dir(owner)
+        target_dir = base_dir / final_id
         if target_dir.exists():
             raise FileExistsError(f"技能 '{final_id}' 已存在，请先删除后再上传")
 
@@ -314,7 +352,20 @@ def install_skill_from_zip(zip_data: bytes, skill_id: str | None = None) -> tupl
         "name": name,
         "description": desc,
         "disabled": disabled,
+        "is_custom": bool(owner),
+        "owner": owner,
     }
+    # 同步元数据到 PG
+    try:
+        from src.api.deps import get_db
+        db = get_db()
+        db.save_skill({
+            "id": final_id, "name": name, "description": desc,
+            "category": "custom" if owner else "document",
+            "owner": owner, "enabled": not disabled, "is_custom": bool(owner),
+        })
+    except Exception:
+        pass
     return final_id, info
 
 

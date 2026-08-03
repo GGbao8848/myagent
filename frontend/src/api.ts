@@ -70,6 +70,52 @@ export async function getSettings(): Promise<SettingsData> {
   return resp.json();
 }
 
+// ── 技能 ──
+
+export interface SkillInfo {
+  id: string;
+  name: string;
+  description: string;
+  disabled: boolean;
+  is_custom?: boolean;
+  owner?: string;
+}
+
+export async function listSkills(showAll = false): Promise<SkillInfo[]> {
+  const resp = await apiFetch(`/api/skills?show_all=${showAll}`);
+  if (!resp.ok) throw new Error("获取技能失败");
+  return resp.json();
+}
+
+export async function uploadSkill(file: File): Promise<{ skill_id: string; skill: SkillInfo }> {
+  const form = new FormData();
+  form.append("file", file);
+  const resp = await apiFetch("/api/skills/upload", {
+    method: "POST",
+    body: form,
+  });
+  if (!resp.ok) {
+    const err = await resp.text();
+    throw new Error(err || "上传技能失败");
+  }
+  return resp.json();
+}
+
+export async function toggleSkill(id: string, disabled: boolean): Promise<SkillInfo> {
+  const resp = await apiFetch(`/api/skills/${id}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ disabled }),
+  });
+  if (!resp.ok) throw new Error("切换技能失败");
+  return resp.json();
+}
+
+export async function deleteSkillApi(id: string): Promise<void> {
+  const resp = await apiFetch(`/api/skills/${id}`, { method: "DELETE" });
+  if (!resp.ok) throw new Error("删除技能失败");
+}
+
 // ── MCP 服务器 ──
 
 export interface MCPServerInfo {

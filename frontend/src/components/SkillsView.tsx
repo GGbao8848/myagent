@@ -11,7 +11,7 @@ interface SkillsViewProps {
   setShowUploadSkillModal: (show: boolean) => void;
   skills: Skill[];
   handleToggleSkill: (id: string) => void;
-  setSkills: React.Dispatch<React.SetStateAction<Skill[]>>;
+  handleDeleteSkill: (id: string) => void;
 }
 
 export const SkillsView: React.FC<SkillsViewProps> = ({
@@ -20,7 +20,7 @@ export const SkillsView: React.FC<SkillsViewProps> = ({
   setShowUploadSkillModal,
   skills,
   handleToggleSkill,
-  setSkills,
+  handleDeleteSkill,
 }) => {
   const renderCategoryTag = (category: string) => {
     switch (category) {
@@ -122,8 +122,8 @@ export const SkillsView: React.FC<SkillsViewProps> = ({
 
               {skill.isCustom && (
                 <div className="mt-3 text-right">
-                  <button 
-                    onClick={() => setSkills(prev => prev.filter(s => s.id !== skill.id))}
+                  <button
+                    onClick={() => handleDeleteSkill(skill.id)}
                     className="text-[10px] text-red-500 hover:underline inline-flex items-center gap-1 cursor-pointer"
                   >
                     <Trash2 className="w-3 h-3" />

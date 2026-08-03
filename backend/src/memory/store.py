@@ -285,8 +285,11 @@ class Database:
                 ),
             )
 
-    def update_mcp_server(self, server_id: str, owner: str, **fields) -> bool:
-        """更新 MCP 服务器，校验归属。"""
+    def update_mcp_server(self, server_id: str, owner: str, allow_public: bool = False, **fields) -> bool:
+        """更新 MCP 服务器，校验归属。
+
+        普通用户只能改自己的私有配置；allow_public=True（管理员）时公共配置也可改。
+        """
         allowed = {"enabled", "url", "name", "headers"}
         updates = {}
         for k, v in fields.items():
@@ -299,19 +302,35 @@ class Database:
             return False
         set_clause = ", ".join(f"{k} = %s" for k in updates)
         with self._conn() as conn:
-            cur = conn.execute(
-                f"UPDATE agent_mcp_servers SET {set_clause} WHERE id = %s AND (owner = '' OR owner = %s)",
-                (*updates.values(), server_id, owner),
-            )
+            if allow_public:
+                cur = conn.execute(
+                    f"UPDATE agent_mcp_servers SET {set_clause} WHERE id = %s AND (owner = '' OR owner = %s)",
+                    (*updates.values(), server_id, owner),
+                )
+            else:
+                cur = conn.execute(
+                    f"UPDATE agent_mcp_servers SET {set_clause} WHERE id = %s AND owner = %s",
+                    (*updates.values(), server_id, owner),
+                )
             return cur.rowcount > 0
 
-    def delete_mcp_server(self, server_id: str, owner: str) -> bool:
-        """删除私有 MCP 服务器（仅能删自己的）。"""
+    def delete_mcp_server(self, server_id: str, owner: str, allow_public: bool = False) -> bool:
+        """删除 MCP 服务器。
+
+        普通用户只能删自己的私有配置（owner 精确匹配）；
+        allow_public=True（管理员）时公共配置也可删。
+        """
         with self._conn() as conn:
-            cur = conn.execute(
-                "DELETE FROM agent_mcp_servers WHERE id = %s AND owner = %s",
-                (server_id, owner),
-            )
+            if allow_public:
+                cur = conn.execute(
+                    "DELETE FROM agent_mcp_servers WHERE id = %s AND (owner = '' OR owner = %s)",
+                    (server_id, owner),
+                )
+            else:
+                cur = conn.execute(
+                    "DELETE FROM agent_mcp_servers WHERE id = %s AND owner = %s",
+                    (server_id, owner),
+                )
             return cur.rowcount > 0
 
     # ------------------------------------------------------------------

@@ -29,7 +29,7 @@ import { SettingsView } from "./components/SettingsView";
 import { ApiDocsModal } from "./components/modals/ApiDocsModal";
 import LoginPage from "./components/LoginPage";
 import { isLoggedIn as hasAuthToken, getStoredUser, logout, startLogin, handleCallback } from "./auth";
-import { apiFetch, createSession, getSession, listSessions, deleteSession, streamChat, getSettings, listMcpServers, addMcpServer, deleteMcpServer, toggleMcpServer, listSkills, uploadSkill, toggleSkill, deleteSkillApi } from "./api";
+import { apiFetch, createSession, getSession, listSessions, deleteSession, streamChat, getSettings, listMcpServers, addMcpServer, deleteMcpServer, toggleMcpServer, testMcpServer, listSkills, uploadSkill, toggleSkill, deleteSkillApi } from "./api";
 
 export default function App() {
   // --- Page Navigation State ---
@@ -1471,8 +1471,8 @@ export default function App() {
   };
   // --- End 8.1. Schedule Planner Handlers ---
 
-  // 9. Add MCP Server (via JSON Configuration pasting)
-  const handleAddMcpServer = (e: React.FormEvent) => {
+  // 9. Add MCP Server (via JSON Configuration pasting) — 真实入库后端
+  const handleAddMcpServer = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!mcpJsonText.trim()) {
       setMcpJsonError("内容不能为空");
@@ -1480,80 +1480,30 @@ export default function App() {
     }
 
     try {
-      const parsed = JSON.parse(mcpJsonText);
-      const serversToAdd: MCPServer[] = [];
+      JSON.parse(mcpJsonText); // 先校验 JSON 语法
+    } catch {
+      setMcpJsonError("JSON 格式解析错误，请检查语法。");
+      return;
+    }
 
-      if (parsed.mcpServers && typeof parsed.mcpServers === "object") {
-        // Multiple servers structure: { mcpServers: { name: { type, url, headers } } }
-        Object.entries(parsed.mcpServers).forEach(([name, config]: [string, any]) => {
-          if (config && typeof config === "object") {
-            const type = config.type || "sse";
-            const urlOrCommand = config.url || config.command || "";
-            serversToAdd.push({
-              id: "mcp_" + Date.now() + "_" + Math.random().toString(36).substring(2, 7),
-              name: name,
-              type: type,
-              urlOrCommand: urlOrCommand,
-              status: "disconnected",
-              tools: [],
-              headers: config.headers,
-              url: config.url,
-              command: config.command
-            });
-          }
-        });
-      } else if (parsed.type) {
-        // Single server pasted directly: { type, url, headers }
-        const name = parsed.name || "Pasted Server " + new Date().toLocaleTimeString();
-        const type = parsed.type;
-        const urlOrCommand = parsed.url || parsed.command || "";
-        serversToAdd.push({
-          id: "mcp_" + Date.now(),
-          name: name,
-          type: type,
-          urlOrCommand: urlOrCommand,
-          status: "disconnected",
-          tools: [],
-          headers: parsed.headers,
-          url: parsed.url,
-          command: parsed.command
-        });
-      } else {
-        // Try parsing any key-value pairs if they look like server configs
-        let found = false;
-        Object.entries(parsed).forEach(([name, config]: [string, any]) => {
-          if (config && typeof config === "object" && (config.type || config.url || config.command)) {
-            found = true;
-            const type = config.type || "sse";
-            const urlOrCommand = config.url || config.command || "";
-            serversToAdd.push({
-              id: "mcp_" + Date.now() + "_" + Math.random().toString(36).substring(2, 7),
-              name: name,
-              type: type,
-              urlOrCommand: urlOrCommand,
-              status: "disconnected",
-              tools: [],
-              headers: config.headers,
-              url: config.url,
-              command: config.command
-            });
-          }
-        });
-        if (!found) {
-          throw new Error("无法识别的 JSON 格式。请提供包含 'mcpServers' 对象或含有 'type' 属性的配置。");
-        }
-      }
-
-      if (serversToAdd.length === 0) {
-        throw new Error("未找到有效的 MCP 服务器配置。");
-      }
-
-      setMcpServers(prev => [...prev, ...serversToAdd]);
+    try {
+      const list = await addMcpServer({ config_json: mcpJsonText });
+      // 用后端返回的最新列表刷新（含连接状态、工具数）
+      setMcpServers(list.map((m) => ({
+        id: m.id,
+        name: m.name,
+        type: m.type,
+        urlOrCommand: m.url || "",
+        status: m.connected ? "connected" : "disconnected",
+        tools: m.tools || [],
+        url: m.url,
+      })));
       setMcpJsonText("");
       setMcpJsonError(null);
       setShowAddServerModal(false);
+      showToast("MCP 服务器已添加", "success");
     } catch (err: any) {
-      setMcpJsonError(err.message || "JSON 格式解析错误，请检查语法。");
+      setMcpJsonError(err.message || "添加 MCP 服务器失败，请检查配置。");
     }
   };
 
@@ -1563,28 +1513,26 @@ export default function App() {
     setMcpServers(prev => prev.map(m => m.id === id ? { ...m, status: "connecting" } : m));
 
     try {
-      const response = await apiFetch(`/api/mcp/servers/${id}/test`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({})
-      });
-
-      const data = await response.json();
+      const data = await testMcpServer(id);
+      setMcpServers(prev => prev.map(m => {
+        if (m.id === id) {
+          return {
+            ...m,
+            status: data.connected ? "connected" : "disconnected",
+            tools: data.tools || [],
+          };
+        }
+        return m;
+      }));
       if (data.connected) {
-        setMcpServers(prev => prev.map(m => {
-          if (m.id === id) {
-            return {
-              ...m,
-              status: "connected",
-              tools: data.tools
-            };
-          }
-          return m;
-        }));
+        showToast(`MCP 服务器 [${name}] 连接成功，检测到 ${data.tool_count || 0} 个工具`, "success");
+      } else {
+        showToast(`MCP 服务器 [${name}] 连接失败：${data.error || "未知错误"}`, "warning");
       }
     } catch (error) {
       console.error("Test MCP connection failed:", error);
       setMcpServers(prev => prev.map(m => m.id === id ? { ...m, status: "disconnected" } : m));
+      showToast(`MCP 服务器 [${name}] 测试请求失败`, "warning");
     } finally {
       setTestingServerId(null);
     }
@@ -1640,24 +1588,31 @@ export default function App() {
     }
   };
 
-  // 11. Delete MCP Server
-  const handleDeleteMcpServer = (id: string) => {
-    setMcpServers(prev => prev.filter(m => m.id !== id));
+  // 11. Delete MCP Server（真实删除后端配置）
+  const handleDeleteMcpServer = async (id: string) => {
+    try {
+      await deleteMcpServer(id);
+      setMcpServers(prev => prev.filter(m => m.id !== id));
+      showToast("MCP 服务器已删除", "success");
+    } catch (error) {
+      console.error("Delete MCP server failed:", error);
+      showToast("删除 MCP 服务器失败", "warning");
+    }
   };
 
-  // 12. Toggle MCP Server manual status
-  const handleToggleMcpStatus = (id: string) => {
-    setMcpServers(prev => prev.map(m => {
-      if (m.id === id) {
-        const nextStatus = m.status === "connected" ? "disconnected" : "connected";
-        return {
-          ...m,
-          status: nextStatus,
-          tools: m.tools
-        };
-      }
-      return m;
-    }));
+  // 12. Toggle MCP Server enabled（真实持久化）
+  const handleToggleMcpStatus = async (id: string) => {
+    try {
+      const updated = await toggleMcpServer(id);
+      setMcpServers(prev => prev.map(m => m.id === id ? {
+        ...m,
+        status: updated.connected ? "connected" : "disconnected",
+        tools: updated.tools || m.tools,
+      } : m));
+    } catch (error) {
+      console.error("Toggle MCP server failed:", error);
+      showToast("切换 MCP 服务器状态失败", "warning");
+    }
   };
 
   // 13. Add Model Config

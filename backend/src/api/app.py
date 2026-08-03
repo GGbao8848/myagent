@@ -6,7 +6,7 @@ import logging
 import uuid
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
@@ -78,15 +78,36 @@ app.add_middleware(
 )
 
 
-# ── Request ID 中间件 ──
-@app.middleware("http")
-async def add_request_id(request: Request, call_next):
-    """为每个请求注入 X-Request-ID，方便日志追踪。"""
-    rid = request.headers.get("X-Request-ID") or uuid.uuid4().hex[:12]
-    request.state.request_id = rid
-    response = await call_next(request)
-    response.headers["X-Request-ID"] = rid
-    return response
+# ── Request ID 中间件（纯 ASGI 版）─────────────────
+# 不用 BaseHTTPMiddleware：它用 create_collapsing_task_group 包裹请求，
+# 与 mcp SDK 的 httpx SSE 长连接在 anyio 4.x 下冲突，导致请求被取消(500)。
+# 纯 ASGI 中间件不做任务组嵌套，长连接路由（MCP test / SSE chat）不受影响。
+from starlette.types import ASGIApp, Receive, Scope, Send
+
+
+class RequestIDMiddleware:
+    def __init__(self, app: ASGIApp) -> None:
+        self.app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+        rid = scope["headers"] and next(
+            (v.decode() for k, v in scope["headers"] if k == b"x-request-id"), None
+        ) or uuid.uuid4().hex[:12]
+
+        async def _send(message) -> None:
+            if message["type"] == "http.response.start":
+                headers = list(message.get("headers", []))
+                headers.append((b"x-request-id", rid.encode()))
+                message["headers"] = headers
+            await send(message)
+
+        await self.app(scope, receive, _send)
+
+
+app.add_middleware(RequestIDMiddleware)
 
 
 # ── 路由注册 ──

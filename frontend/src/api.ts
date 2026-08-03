@@ -166,7 +166,15 @@ export async function toggleMcpServer(id: string): Promise<MCPServerInfo> {
   return resp.json();
 }
 
-export async function testMcpServer(id: string) {
+export interface MCPTestResult {
+  server_id: string;
+  connected: boolean;
+  tools: Array<{ name: string; description: string; parameters?: string[] }>;
+  tool_count: number;
+  error: string;
+}
+
+export async function testMcpServer(id: string): Promise<MCPTestResult> {
   const resp = await apiFetch(`/api/mcp/servers/${id}/test`, { method: "POST" });
   if (!resp.ok) throw new Error("测试 MCP 服务器失败");
   return resp.json();

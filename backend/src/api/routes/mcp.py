@@ -24,6 +24,11 @@ def _username(user: dict) -> str:
     return user.get("username", user.get("sub", ""))
 
 
+def _is_admin(user: dict) -> bool:
+    """是否平台管理员（realm 角色含 admin）。"""
+    return "admin" in (user.get("roles") or [])
+
+
 def _db_server_to_config(row: dict) -> MCPServerConfig:
     """把 PG 行转成运行时 MCPServerConfig。"""
     return MCPServerConfig(
@@ -127,6 +132,7 @@ async def add_server(body: MCPServerAddRequest, user: dict = Depends(get_current
     2. 逐字段填写（id, url, headers 等）
     """
     owner = _username(user)
+    is_admin = _is_admin(user)
     db = get_db()
     new_servers: list[MCPServerConfig] = []
 
@@ -146,10 +152,9 @@ async def add_server(body: MCPServerAddRequest, user: dict = Depends(get_current
     else:
         raise HTTPException(400, "请提供 config_json 或 (id + url)")
 
-    # 存入 PG（带 owner）
+    # 存入 PG（带 owner）：仅管理员可存公共，其余用户一律私有
     for ns in new_servers:
-        # 公共配置（config_json 里的）存为公共，逐字段添加的存为当前用户私有
-        item_owner = "" if body.config_json else owner
+        item_owner = "" if is_admin else owner
         db.save_mcp_server({
             "id": ns.id, "name": ns.name or ns.id, "type": ns.type,
             "url": ns.url or "", "command": ns.command or "", "args": ns.args or [],
@@ -175,10 +180,10 @@ async def add_server(body: MCPServerAddRequest, user: dict = Depends(get_current
 
 @router.delete("/servers/{server_id}")
 async def delete_server(server_id: str, user: dict = Depends(get_current_user)):
-    """删除 MCP 服务器（仅能删自己的私有配置）。"""
+    """删除 MCP 服务器。管理员可删公共+私有，其余用户只能删自己的私有配置。"""
     owner = _username(user)
     db = get_db()
-    if not db.delete_mcp_server(server_id, owner):
+    if not db.delete_mcp_server(server_id, owner, allow_public=_is_admin(user)):
         raise HTTPException(404, f"MCP 服务器 '{server_id}' 不存在或无权删除")
 
     # 同步到共享管理器
@@ -230,7 +235,8 @@ async def toggle_server(server_id: str, user: dict = Depends(get_current_user)):
         raise HTTPException(404, f"MCP 服务器 '{server_id}' 不存在")
 
     new_enabled = not row["enabled"]
-    db.update_mcp_server(server_id, owner, enabled=new_enabled)
+    if not db.update_mcp_server(server_id, owner, enabled=new_enabled, allow_public=_is_admin(user)):
+        raise HTTPException(403, f"MCP 服务器 '{server_id}' 为公共配置，仅管理员可修改")
     row["enabled"] = new_enabled
     cfg = _db_server_to_config(row)
 

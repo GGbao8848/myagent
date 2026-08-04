@@ -1,12 +1,14 @@
 // BR-Agent PM2 生产部署配置（Windows Server）
 // 启动：pm2 start ecosystem.config.js
-// 说明：Windows 下直接跑 tsx/vite 的 js 入口（不经 npm.cmd/cmd.exe），避免弹出 cmd 窗口。
-//       script 用绝对路径（基于仓库根），PM2 用 node 直接加载。
+// 说明：Windows 下避免 cmd/node 弹窗——
+//       · script 一律走 node 直接加载（不经 npm.cmd）
+//       · server 用 node --import tsx loader 进程内跑 TS，不 spawn 子 node（子进程会弹窗且 PM2 windowsHide 管不住）
 const path = require("path");
 
 // 仓库根 = 本配置文件所在目录
 const ROOT = __dirname;
-const TSX_CLI = path.join(ROOT, "node_modules", "tsx", "dist", "cli.mjs");
+const NODE = process.execPath;
+const TSX_LOADER = path.join(ROOT, "node_modules", "tsx", "dist", "loader.mjs");
 const VITE_CLI = path.join(ROOT, "node_modules", "vite", "bin", "vite.js");
 
 module.exports = {
@@ -14,8 +16,9 @@ module.exports = {
     {
       name: "br-agent-server",
       cwd: path.join(ROOT, "apps", "server"),
-      script: TSX_CLI,
-      args: "src/index.ts",
+      script: NODE,
+      args: ["--import", `file:///${TSX_LOADER}`, "src/index.ts"],
+      windowsHide: true, // Windows：隐藏 node 进程窗口（避免弹窗）
       env: {
         NODE_ENV: "production",
       },
@@ -31,6 +34,7 @@ module.exports = {
       cwd: path.join(ROOT, "apps", "web"),
       script: VITE_CLI,
       args: "preview",
+      windowsHide: true, // Windows：隐藏 node 进程窗口（避免弹窗）
       env: {
         NODE_ENV: "production",
       },

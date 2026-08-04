@@ -66,7 +66,7 @@ print(";".join(hits))
 sys.exit(0 if not hits else 2)
 `;
   return new Promise((resolve) => {
-    const proc = spawn("python", ["-c", checker], { shell: false });
+    const proc = spawn("python", ["-c", checker], { shell: false, windowsHide: true });
     let stdout = "";
     let stderr = "";
     proc.stdout.on("data", (d) => (stdout += d.toString()));
@@ -100,7 +100,7 @@ export function monitorMemory(
   let stopped = false;
   const timer = setInterval(() => {
     if (stopped) return;
-    execFile("tasklist", ["/FI", `PID eq ${pid}`, "/FO", "CSV"], (err, stdout) => {
+    execFile("tasklist", ["/FI", `PID eq ${pid}`, "/FO", "CSV"], { windowsHide: true }, (err, stdout) => {
       if (stopped) return;
       if (err) return; // 进程可能已退出
       // CSV: "name","pid","session","#","mem"，内存字段含逗号（如 "4,628 K"），需引号感知解析

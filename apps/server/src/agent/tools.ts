@@ -31,6 +31,7 @@ async function runPython(
       cwd,
       env: { ...process.env },
       shell: false,
+      windowsHide: true,
     });
     let stdout = "";
     let stderr = "";

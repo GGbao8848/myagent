@@ -29,6 +29,10 @@ backend/.env
 backend/.env.*
 !backend/.env.example
 
+# ── 本地运行数据 / 配置 ──
+apps/server/data/
+.claude/
+
 # ── IDE ──
 .vscode/
 .idea/

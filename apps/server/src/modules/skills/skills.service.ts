@@ -52,7 +52,9 @@ export async function listSkills(owner: string): Promise<SkillDto[]> {
   }));
 }
 
-export async function installSkill(owner: string, zipBuffer: Buffer): Promise<SkillDto> {
+export async function installSkill(owner: string, zipBuffer: Buffer, isPublic = false): Promise<SkillDto> {
+  // 公共技能：owner 存 ""（所有用户可见），目录落 data/skills/<id>；私有落 data/skills/<owner>/<id>
+  const skillOwner = isPublic ? "" : owner;
   const zip = new AdmZip(zipBuffer);
   const entries = zip.getEntries();
   // 找到 SKILL.md（可在根或子目录）
@@ -74,7 +76,7 @@ export async function installSkill(owner: string, zipBuffer: Buffer): Promise<Sk
     id = topDir || "skill-" + Date.now();
   }
 
-  const target = skillDir(owner, id);
+  const target = skillDir(skillOwner, id);
   // 路径穿越校验
   for (const entry of entries) {
     const full = resolve(target, entry.entryName);
@@ -110,7 +112,7 @@ export async function installSkill(owner: string, zipBuffer: Buffer): Promise<Sk
       name: meta?.name ?? id,
       description: meta?.description ?? "",
       category: "custom",
-      owner,
+      owner: skillOwner,
       enabled: true,
       isCustom: true,
     },

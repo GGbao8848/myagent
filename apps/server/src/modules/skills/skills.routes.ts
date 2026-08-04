@@ -9,18 +9,24 @@ export function registerSkillRoutes(app: FastifyInstance): void {
     return listSkills(user.username);
   });
 
-  // 上传 zip
-  app.post("/api/skills/upload", async (request, reply) => {
+  // 上传 zip（管理员可选公共/私有；普通用户固定私有）
+  app.post<{ Body: { zip?: unknown; public?: boolean } }>("/api/skills/upload", async (request, reply) => {
     const user = request.authUser!;
-    const data = request.body as { zip?: unknown };
+    const data = request.body as { zip?: unknown; public?: boolean };
     // 前端以 base64 或 binary 上传。这里约定 body 为 { zip: <base64> }
     if (!data?.zip || typeof data.zip !== "string") {
       reply.code(400).send({ error: "请上传 zip 文件（body.zip 为 base64）" });
       return;
     }
+    const isPublic = !!data.public;
+    // 仅管理员可上传公共技能
+    if (isPublic && !user.isAdmin) {
+      reply.code(403).send({ error: "仅管理员可上传公共技能" });
+      return;
+    }
     try {
       const buffer = Buffer.from(data.zip, "base64");
-      const skill = await installSkill(user.username, buffer);
+      const skill = await installSkill(user.username, buffer, isPublic);
       return skill;
     } catch (e) {
       reply.code(400).send({ error: (e as Error).message });

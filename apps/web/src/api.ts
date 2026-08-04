@@ -42,10 +42,10 @@ export const api = {
 
   // 技能
   listSkills: () => json<SkillDto[]>("/api/skills"),
-  uploadSkill: (zipBase64: string) =>
+  uploadSkill: (zipBase64: string, isPublic: boolean = false) =>
     json<SkillDto>("/api/skills/upload", {
       method: "POST",
-      body: JSON.stringify({ zip: zipBase64 }),
+      body: JSON.stringify({ zip: zipBase64, public: isPublic }),
     }),
   toggleSkill: (id: string, enabled: boolean) =>
     json(`/api/skills/${id}`, { method: "PATCH", body: JSON.stringify({ enabled }) }),

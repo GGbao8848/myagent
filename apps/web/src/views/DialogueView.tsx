@@ -229,6 +229,7 @@ export default function DialogueView({ activeSessionId, onSelectSession }: Props
       error: (e) => {
         flow.error = e.content;
         apply();
+        finish(); // 错误事件后流结束（无 done），结束流式状态
       },
       done: (e) => {
         finish(e.message_id);

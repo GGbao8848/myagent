@@ -61,14 +61,15 @@ model McpServer {
 }
 
 model LlmProvider {
-  id         String   @id @default(cuid())
-  name       String
-  model      String
-  baseUrl    String
-  apiKeyEnc  String   @default("")
-  owner      String   @default("") // 公共=""，私有=userId
-  maxTokens  Int      @default(32768)
-  createdAt  DateTime @default(now()) @map("created_at")
+  id              String   @id @default(cuid())
+  name            String
+  model           String
+  baseUrl         String
+  apiKeyEnc       String   @default("")
+  owner           String   @default("") // 公共=""，私有=userId
+  isGlobalDefault Boolean  @default(false) @map("is_global_default") // 公共 provider 是否全员默认
+  maxTokens       Int      @default(32768)
+  createdAt       DateTime @default(now()) @map("created_at")
 
   @@index([owner])
 }

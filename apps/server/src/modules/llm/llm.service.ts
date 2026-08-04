@@ -10,6 +10,7 @@ interface ProviderRow {
   baseUrl: string;
   apiKeyEnc: string;
   owner: string;
+  isGlobalDefault: boolean;
   maxTokens: number;
   createdAt: Date;
 }
@@ -22,23 +23,26 @@ function toDto(p: ProviderRow): LlmProviderDto {
     baseUrl: p.baseUrl,
     apiKeyMasked: maskKey(decryptKey(p.apiKeyEnc)),
     owner: p.owner,
+    isGlobalDefault: p.isGlobalDefault,
     maxTokens: p.maxTokens,
     createdAt: p.createdAt.toISOString(),
   };
 }
 
-/** 列表：公共 + 当前用户私有；activeProviderId = 用户默认 provider（无 = 用内置模型） */
+/** 列表：公共 + 当前用户私有；activeProviderId = 用户默认；globalDefaultId = 公共全局默认 */
 export async function listProviders(owner: string): Promise<LlmProviderListDto> {
-  const [rows, def] = await Promise.all([
+  const [rows, def, globalDefault] = await Promise.all([
     prisma.llmProvider.findMany({
       where: { OR: [{ owner: "" }, { owner }] },
       orderBy: { createdAt: "desc" },
     }),
     prisma.userDefaultModel.findUnique({ where: { owner } }),
+    prisma.llmProvider.findFirst({ where: { owner: "", isGlobalDefault: true } }),
   ]);
   return {
     providers: rows.map(toDto),
     activeProviderId: def?.providerId ?? null,
+    globalDefaultId: globalDefault?.id ?? null,
   };
 }
 
@@ -61,6 +65,7 @@ export async function createProvider(
       baseUrl: input.baseUrl.trim(),
       apiKeyEnc: encryptKey(input.apiKey ?? ""),
       owner: isPublic ? "" : owner,
+      isGlobalDefault: false,
       maxTokens: input.maxTokens ?? 32768,
     },
   });
@@ -101,6 +106,16 @@ export async function deleteProvider(id: string, owner: string, isAdmin: boolean
   await prisma.llmProvider.delete({ where: { id } });
 }
 
+/** 管理员把某个公共 provider 设为全员默认（先清空其他公共默认标记） */
+export async function setGlobalDefault(id: string, isAdmin: boolean): Promise<void> {
+  if (!isAdmin) throw Object.assign(new Error("仅管理员可设置全局默认"), { code: 403 });
+  const row = await prisma.llmProvider.findUnique({ where: { id } });
+  if (!row) throw Object.assign(new Error("provider 不存在"), { code: 404 });
+  if (row.owner !== "") throw Object.assign(new Error("仅公共 provider 可设为全局默认"), { code: 400 });
+  await prisma.llmProvider.updateMany({ where: { owner: "" }, data: { isGlobalDefault: false } });
+  await prisma.llmProvider.update({ where: { id }, data: { isGlobalDefault: true } });
+}
+
 /** 设为当前用户默认（用户独立，不影响他人）：写入 UserDefaultModel */
 export async function setActiveProvider(id: string, owner: string): Promise<void> {
   const row = await prisma.llmProvider.findUnique({ where: { id } });
@@ -121,17 +136,27 @@ export async function resetDefaultProvider(owner: string): Promise<void> {
   await prisma.userDefaultModel.deleteMany({ where: { owner } });
 }
 
-/** 供对话：当前用户默认 provider；无记录返回 null（回退 env 内置模型） */
+/**
+ * 供对话：解析当前用户实际使用的 provider。三级优先级：
+ * 1. 用户私有默认（UserDefaultModel）
+ * 2. 公共全局默认（owner="" 且 isGlobalDefault）
+ * 3. 都没有 → null（调用方报错，不再回退 env）
+ */
 export async function getActiveProvider(owner: string): Promise<{
   model: string;
   baseUrl: string;
   apiKeyEnc: string;
 } | null> {
+  // 1. 用户私有默认
   const def = await prisma.userDefaultModel.findUnique({ where: { owner } });
-  if (!def) return null;
-  const row = await prisma.llmProvider.findUnique({ where: { id: def.providerId } });
-  if (!row) return null;
-  return { model: row.model, baseUrl: row.baseUrl, apiKeyEnc: row.apiKeyEnc };
+  if (def) {
+    const row = await prisma.llmProvider.findUnique({ where: { id: def.providerId } });
+    if (row) return { model: row.model, baseUrl: row.baseUrl, apiKeyEnc: row.apiKeyEnc };
+  }
+  // 2. 公共全局默认
+  const global = await prisma.llmProvider.findFirst({ where: { owner: "", isGlobalDefault: true } });
+  if (global) return { model: global.model, baseUrl: global.baseUrl, apiKeyEnc: global.apiKeyEnc };
+  return null;
 }
 
 /** 连接测试：用 baseUrl 探测模型可达性（发一个极短的 chat 请求） */

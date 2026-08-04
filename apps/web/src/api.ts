@@ -72,6 +72,8 @@ export const api = {
     json(`/api/llm/providers/${id}/activate`, { method: "POST", body: JSON.stringify({}) }),
   resetLlmDefault: () =>
     json(`/api/llm/providers/reset`, { method: "POST", body: JSON.stringify({}) }),
+  setGlobalDefault: (id: string) =>
+    json(`/api/llm/providers/${id}/global-default`, { method: "POST", body: JSON.stringify({}) }),
   testLlmProvider: (id: string) =>
     json<{ ok: boolean; error?: string }>(`/api/llm/providers/${id}/test`, { method: "POST", body: JSON.stringify({}) }),
 

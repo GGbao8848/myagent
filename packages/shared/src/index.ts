@@ -98,13 +98,15 @@ export interface LlmProviderDto {
   baseUrl: string;
   apiKeyMasked: string; // 脱敏展示，如 "sk-***abc"
   owner: string; // 公共=""，私有=userId
+  isGlobalDefault: boolean; // 是否公共全局默认
   maxTokens: number;
   createdAt: string;
 }
 
 export interface LlmProviderListDto {
   providers: LlmProviderDto[];
-  activeProviderId: string | null; // null = 使用 env 内置模型
+  activeProviderId: string | null; // 用户私有默认
+  globalDefaultId: string | null; // 公共全局默认
 }
 
 export interface LlmProviderInput {

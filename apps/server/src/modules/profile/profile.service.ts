@@ -126,6 +126,7 @@ export async function extractObservationsAsync(
 ): Promise<void> {
   try {
     const active = await getActiveProvider(owner);
+    if (!active) return; // 无可用模型，不提取（静默）
     const model = createChatModel(
       active
         ? { model: active.model, baseUrl: active.baseUrl, apiKey: active.apiKeyEnc ? decryptKey(active.apiKeyEnc) : undefined }

@@ -6,6 +6,7 @@ import {
   updateProvider,
   deleteProvider,
   setActiveProvider,
+  setGlobalDefault,
   resetDefaultProvider,
   testProvider,
 } from "./llm.service.js";
@@ -71,11 +72,24 @@ export function registerLlmRoutes(app: FastifyInstance): void {
     }
   });
 
-  // 恢复内置模型为默认
+  // 恢复内置模型为默认（清空用户私有默认 → 回退公共全局默认）
   app.post("/api/llm/providers/reset", async (request) => {
     const user = request.authUser!;
     await resetDefaultProvider(user.username);
     return { ok: true };
+  });
+
+  // 管理员设置公共全局默认
+  app.post<{ Params: { id: string } }>("/api/llm/providers/:id/global-default", async (request, reply) => {
+    const user = request.authUser!;
+    try {
+      await setGlobalDefault(request.params.id, user.isAdmin);
+      return { ok: true };
+    } catch (e) {
+      const code = (e as { code?: number }).code ?? 400;
+      reply.code(code).send({ error: (e as Error).message });
+      return;
+    }
   });
 
   // 连接测试

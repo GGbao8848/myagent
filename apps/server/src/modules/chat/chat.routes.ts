@@ -100,16 +100,20 @@ export function registerChatRoutes(app: FastifyInstance): void {
       try {
         // 注入完整工具集：内置沙箱工具 + 用户启用 MCP 工具（ToolManager 统一注册）
         const tools = await createAgentTools(user.username);
-        // 按用户激活的默认 provider 创建模型；无则回退 env 内置 qwen
+        // 解析当前用户实际使用的 provider（用户私有默认 → 公共全局默认），无则报错
         const active = await getActiveProvider(user.username);
-        let model: ReturnType<typeof createChatModel> | undefined;
-        if (active) {
-          model = createChatModel({
-            model: active.model,
-            baseUrl: active.baseUrl,
-            apiKey: active.apiKeyEnc ? decryptKey(active.apiKeyEnc) : undefined,
-          });
+        if (!active) {
+          reply.raw.write(
+            sseFrame({ event: "error", content: "未配置可用模型，请在模型配置页设置默认模型" })
+          );
+          reply.raw.end();
+          return;
         }
+        const model = createChatModel({
+          model: active.model,
+          baseUrl: active.baseUrl,
+          apiKey: active.apiKeyEnc ? decryptKey(active.apiKeyEnc) : undefined,
+        });
         const result = await runAgent({
           systemPrompt,
           tools,

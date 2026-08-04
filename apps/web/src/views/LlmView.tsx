@@ -8,6 +8,7 @@ import type { LlmProviderDto } from "@br-agent/shared";
 export default function LlmView() {
   const [providers, setProviders] = useState<LlmProviderDto[]>([]);
   const [activeProviderId, setActiveProviderId] = useState<string | null>(null);
+  const [globalDefaultId, setGlobalDefaultId] = useState<string | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
   const [showModal, setShowModal] = useState(false);
   const [editTarget, setEditTarget] = useState<LlmProviderDto | null>(null);
@@ -19,6 +20,7 @@ export default function LlmView() {
     api.listLlmProviders().then((d) => {
       setProviders(d.providers);
       setActiveProviderId(d.activeProviderId);
+      setGlobalDefaultId(d.globalDefaultId);
     }).catch((e) => setMsg(e.message));
   }, []);
 
@@ -26,8 +28,10 @@ export default function LlmView() {
     load();
   }, [load]);
 
-  const active = providers.find((p) => p.id === activeProviderId);
-  const defaultName = active ? `${active.name} (${active.model})` : "env 内置 Qwen3.5-27B";
+  // 实际生效的默认：用户私有默认 → 公共全局默认 → 未配置
+  const active = providers.find((p) => p.id === activeProviderId)
+    ?? providers.find((p) => p.id === globalDefaultId);
+  const defaultName = active ? `${active.name} (${active.model})` : "未配置";
 
   const activate = async (p: LlmProviderDto) => {
     try {
@@ -43,7 +47,16 @@ export default function LlmView() {
       await api.resetLlmDefault();
       load();
     } catch (e) {
-      setMsg("恢复内置失败：" + (e as Error).message);
+      setMsg("恢复默认失败：" + (e as Error).message);
+    }
+  };
+
+  const setGlobal = async (p: LlmProviderDto) => {
+    try {
+      await api.setGlobalDefault(p.id);
+      load();
+    } catch (e) {
+      setMsg("设置全局默认失败：" + (e as Error).message);
     }
   };
 
@@ -86,14 +99,14 @@ export default function LlmView() {
       <div className="flex items-center justify-between mb-4">
         <p className="text-sm text-gray-500">
           当前默认：<span className="font-medium text-gray-700">{defaultName}</span>
-          {!active && <span className="text-gray-400">（未配置时使用 env 内置模型）</span>}
+          {!active && <span className="text-gray-400">（未配置时无法使用对话，请联系管理员配置公共模型）</span>}
         </p>
-        {active && (
+        {activeProviderId && (
           <button
             onClick={resetDefault}
             className="px-3 py-1.5 border border-gray-300 rounded-md text-sm text-gray-600 hover:bg-gray-100"
           >
-            使用内置模型
+            清除我的默认
           </button>
         )}
       </div>
@@ -112,6 +125,7 @@ export default function LlmView() {
         <div className="grid gap-3">
           {providers.map((p) => {
             const isActive = p.id === activeProviderId;
+            const isGlobalDefault = p.id === globalDefaultId;
             return (
             <div key={p.id} className={`bg-white border rounded-lg p-4 ${isActive ? "border-blue-400 ring-1 ring-blue-200" : "border-gray-200"}`}>
               <div className="flex items-start justify-between">
@@ -129,7 +143,9 @@ export default function LlmView() {
                       {p.owner === "" ? "公共" : "私有"}
                     </span>
                     {isActive ? (
-                      <span className="px-1.5 py-0.5 rounded text-xs bg-blue-50 text-blue-600">✓ 默认</span>
+                      <span className="px-1.5 py-0.5 rounded text-xs bg-blue-50 text-blue-600">✓ 我的默认</span>
+                    ) : isGlobalDefault ? (
+                      <span className="px-1.5 py-0.5 rounded text-xs bg-green-50 text-green-700">★ 公共默认</span>
                     ) : null}
                   </div>
                   <p className="text-xs text-gray-400 mt-1 font-mono truncate">{p.baseUrl}</p>
@@ -144,6 +160,14 @@ export default function LlmView() {
                       className="text-xs text-blue-600 hover:text-blue-800"
                     >
                       设为默认
+                    </button>
+                  ) : null}
+                  {p.owner === "" && isAdmin && !isGlobalDefault ? (
+                    <button
+                      onClick={() => setGlobal(p)}
+                      className="text-xs text-green-600 hover:text-green-800"
+                    >
+                      设为公共默认
                     </button>
                   ) : null}
                   <button

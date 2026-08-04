@@ -4,6 +4,8 @@ frontend/node_modules/
 frontend/dist/
 frontend/dist-ssr/
 frontend/*.local
+apps/web/dist/
+apps/web/node_modules/
 bun.lock
 frontend/bun.lock
 

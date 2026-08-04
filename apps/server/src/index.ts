@@ -1,4 +1,7 @@
 // 服务入口：Fastify 启动
+// 先加载 .env（config.ts 读取 process.env）
+import { config as loadDotenv } from "dotenv";
+loadDotenv();
 import Fastify from "fastify";
 import cors from "@fastify/cors";
 import { mkdirSync } from "node:fs";

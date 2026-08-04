@@ -61,3 +61,31 @@ DEFAULT_MODEL=/models/Qwen3.5-27B-FP8
 - server 用 `tsx watch`，改代码自动重载；但偶尔出现端口被旧进程占用（EADDRINUSE），需 `taskkill //PID <pid> //F` 清理
 - 改 `apps/server/prisma/schema.prisma` 后需 `db:push` + 重启 server 才能用新模型
 - 后端 typecheck：`cd apps/server && npx tsc --noEmit`；前端：`cd apps/web && npx tsc --noEmit`
+
+## 生产部署（PM2，Windows Server）
+
+配置文件：根目录 `ecosystem.config.js`（server 用 `npm.cmd run start`，web 用 `npm.cmd run preview`，带崩溃重启 + 日志到 `logs/`）。
+
+```bash
+# 1. 安装 PM2 + 开机自启
+npm install -g pm2 pm2-windows-startup
+pm2-startup install
+
+# 2. 构建前端 + 启动
+cd apps/web && npm run build        # 生成 dist（preview 服务静态产物）
+cd <项目根> && pm2 start ecosystem.config.js
+pm2 save                            # 保存进程列表，服务器重启后自动恢复
+
+# 常用命令
+pm2 status              # 查看状态
+pm2 logs                # 查看日志
+pm2 restart br-agent-server   # 重启后端
+pm2 restart br-agent-web      # 重启前端
+```
+
+要点：
+- **.env 加载**：server 入口 `index.ts` 用 dotenv 加载 `.env`（生产 `ENCRYPTION_KEY`、`MAX_CONCURRENT_GENERATIONS` 等必须配在 `.env`）
+- **前端生产**：`npm run preview` 服务 build 产物，端口 9005 + `/api` 代理（vite preview 配置在 vite.config.ts）
+- **并发上限**：`MAX_CONCURRENT_GENERATIONS`（默认 700）控制全局同时生成数，超限返回 503
+- Windows 下 PM2 `script` 字段必须用 `npm.cmd`（不是 `npm`）
+- 部署前确保：PostgreSQL、Keycloak、vLLM/外部模型可达；数据库已 `db:push`

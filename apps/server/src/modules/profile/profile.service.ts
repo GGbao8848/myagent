@@ -195,7 +195,8 @@ export async function extractObservationsAsync(
     const prompt =
       "从下面的对话中提取关于用户的持久偏好或事实（如喜欢简洁回复、习惯用某工具、身份信息等）。" +
       "只提取用户明确表达、多次出现或可长期使用的偏好；忽略一次性的请求、情绪表达、寒暄和无关内容。" +
-      "最多提取 5 条。不要输出任何思考过程或解释，只输出一个 JSON 字符串数组，如 [\"偏好A\", \"事实B\"]。\n\n对话：\n" + recent;
+      "最多提取 5 条。不要输出思考过程、解释或示例，只输出一个 JSON 字符串数组。" +
+      "注意：绝对不要把占位示例（如\"偏好A\"、\"事实B\"）作为提取结果输出。\n\n对话：\n" + recent;
     const result = await model.invoke([{ role: "user", content: prompt }] as never);
     const text = typeof result.content === "string" ? result.content : JSON.stringify(result.content);
     const parsed = parseObservations(text);
@@ -218,6 +219,8 @@ export async function extractObservationsAsync(
 /** 空泛内容过滤：无具体信息的表达不提取 */
 function isVague(s: string): boolean {
   const vague = ["用户很好", "用户不错", "用户友好", "用户正常", "好的", "可以", "谢谢", "没问题", "知道了", "用户开心", "用户满意"];
+  // 占位/示例模式（LLM 偶发把输出格式示例当结果返回）：偏好A/事实B/偏好X/事实Y 等
+  if (/^(偏好|事实|喜好|习惯|身份|信息)[A-Za-z0-9_一-龥]{0,2}$/.test(s)) return true;
   return vague.some((v) => s.includes(v)) || /^(用户|我)(是|叫|在|有)?[一-龥]{0,3}$/.test(s);
 }
 

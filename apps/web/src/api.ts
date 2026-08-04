@@ -40,6 +40,16 @@ export const api = {
   deleteSession: (id: string) => json(`/api/sessions/${id}`, { method: "DELETE" }),
   stop: (id: string) => json(`/api/sessions/${id}/stop`, { method: "POST" }),
 
+  // 会话回收站
+  listTrashSessions: () => json<SessionDto[]>("/api/sessions/trash"),
+  restoreSession: (id: string) =>
+    json(`/api/sessions/${id}/restore`, { method: "POST", body: JSON.stringify({}) }),
+  batchRestoreSessions: (ids: string[]) =>
+    json("/api/sessions/batch-restore", { method: "POST", body: JSON.stringify({ ids }) }),
+  batchDeleteSessions: (ids: string[]) =>
+    json("/api/sessions/batch", { method: "DELETE", body: JSON.stringify({ ids }) }),
+  emptyTrash: () => json("/api/sessions/trash", { method: "DELETE" }),
+
   // 技能
   listSkills: () => json<SkillDto[]>("/api/skills"),
   uploadSkill: (zipBase64: string, isPublic: boolean = false) =>

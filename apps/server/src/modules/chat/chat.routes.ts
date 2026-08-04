@@ -47,9 +47,9 @@ export function registerChatRoutes(app: FastifyInstance): void {
         return;
       }
 
-      // 校验会话归属
+      // 校验会话归属（回收站中的会话不可对话）
       const session = await prisma.session.findFirst({
-        where: { id: sessionId, userId: user.username },
+        where: { id: sessionId, userId: user.username, deletedAt: null },
       });
       if (!session) {
         reply.code(404).send({ error: "会话不存在" });

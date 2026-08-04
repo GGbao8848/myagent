@@ -58,6 +58,9 @@ export default function DialogueView({ activeSessionId, onSelectSession }: Props
   const [sessions, setSessions] = useState<SessionDto[]>([]);
   const [states, setStates] = useState<Record<string, SessionState>>({});
   const [input, setInput] = useState("");
+  const [trashMode, setTrashMode] = useState(false);
+  const [trashSessions, setTrashSessions] = useState<SessionDto[]>([]);
+  const [trashSelected, setTrashSelected] = useState<Set<string>>(new Set());
 
   const flowsRef = useRef<Map<string, FlowState>>(new Map());
   const controllersRef = useRef<Map<string, AbortController>>(new Map());
@@ -153,6 +156,71 @@ export default function DialogueView({ activeSessionId, onSelectSession }: Props
       delete next[id];
       return next;
     });
+  };
+
+  // ── 回收站操作 ──
+  const loadTrash = useCallback(() => {
+    api.listTrashSessions().then(setTrashSessions).catch(console.error);
+  }, []);
+
+  const toggleTrashMode = () => {
+    const next = !trashMode;
+    setTrashMode(next);
+    setTrashSelected(new Set());
+    if (next) loadTrash();
+  };
+
+  const toggleTrashSelect = (id: string) => {
+    setTrashSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const toggleTrashSelectAll = () => {
+    setTrashSelected((prev) => {
+      const all = trashSessions.map((s) => s.id);
+      const isAll = prev.size === all.length && all.length > 0;
+      return isAll ? new Set<string>() : new Set(all);
+    });
+  };
+
+  const restoreOne = async (id: string) => {
+    await api.restoreSession(id);
+    loadTrash();
+    api.listSessions().then(setSessions).catch(() => {});
+  };
+
+  const restoreSelected = async () => {
+    if (trashSelected.size === 0) return;
+    await api.batchRestoreSessions([...trashSelected]);
+    setTrashSelected(new Set());
+    loadTrash();
+    api.listSessions().then(setSessions).catch(() => {});
+  };
+
+  const deleteTrashOne = async (id: string) => {
+    if (!confirm("彻底删除该会话？此操作不可恢复。")) return;
+    await api.batchDeleteSessions([id]);
+    loadTrash();
+  };
+
+  const deleteTrashSelected = async () => {
+    if (trashSelected.size === 0) return;
+    if (!confirm(`彻底删除选中的 ${trashSelected.size} 个会话？此操作不可恢复。`)) return;
+    await api.batchDeleteSessions([...trashSelected]);
+    setTrashSelected(new Set());
+    loadTrash();
+  };
+
+  const emptyTrashAll = async () => {
+    if (trashSessions.length === 0) return;
+    if (!confirm(`清空回收站（${trashSessions.length} 个会话）？此操作不可恢复。`)) return;
+    await api.emptyTrash();
+    setTrashSelected(new Set());
+    loadTrash();
   };
 
   const send = async (sessionId: string, content: string) => {
@@ -272,16 +340,40 @@ export default function DialogueView({ activeSessionId, onSelectSession }: Props
     <div className="flex flex-1 min-w-0 h-full">
       {/* 会话列表 */}
       <div className="w-56 border-r border-gray-200 bg-gray-50 flex flex-col">
-        <div className="p-3">
+        <div className="p-3 space-y-2">
           <button
             onClick={newSession}
-            className="w-full px-3 py-2 bg-blue-600 text-white rounded-md text-sm hover:bg-blue-700"
+            disabled={trashMode}
+            className="w-full px-3 py-2 bg-blue-600 text-white rounded-md text-sm hover:bg-blue-700 disabled:opacity-40"
           >
             + 新建会话
           </button>
+          <button
+            onClick={toggleTrashMode}
+            className={`w-full px-3 py-2 rounded-md text-sm border ${
+              trashMode
+                ? "bg-gray-800 text-white border-gray-800"
+                : "bg-white text-gray-600 border-gray-300 hover:bg-gray-50"
+            }`}
+          >
+            {trashMode ? "← 返回会话列表" : "🗑 回收站"}
+          </button>
         </div>
         <div className="flex-1 overflow-y-auto">
-          {sessions.map((s) => (
+          {trashMode ? (
+            <TrashView
+              sessions={trashSessions}
+              selected={trashSelected}
+              onToggle={toggleTrashSelect}
+              onToggleAll={toggleTrashSelectAll}
+              onRestore={restoreOne}
+              onRestoreSelected={restoreSelected}
+              onDelete={deleteTrashOne}
+              onDeleteSelected={deleteTrashSelected}
+              onEmpty={emptyTrashAll}
+            />
+          ) : (
+            sessions.map((s) => (
             <div
               key={s.id}
               className={`group px-3 py-2 cursor-pointer text-sm border-b border-gray-100 ${
@@ -307,7 +399,7 @@ export default function DialogueView({ activeSessionId, onSelectSession }: Props
                 </button>
               </div>
             </div>
-          ))}
+          )))}
         </div>
       </div>
 
@@ -366,6 +458,96 @@ export default function DialogueView({ activeSessionId, onSelectSession }: Props
           )}
         </div>
       </div>
+    </div>
+  );
+}
+
+// 回收站视图：多选 + 恢复/彻底删除/清空
+function TrashView({
+  sessions,
+  selected,
+  onToggle,
+  onToggleAll,
+  onRestore,
+  onRestoreSelected,
+  onDelete,
+  onDeleteSelected,
+  onEmpty,
+}: {
+  sessions: SessionDto[];
+  selected: Set<string>;
+  onToggle: (id: string) => void;
+  onToggleAll: () => void;
+  onRestore: (id: string) => void;
+  onRestoreSelected: () => void;
+  onDelete: (id: string) => void;
+  onDeleteSelected: () => void;
+  onEmpty: () => void;
+}) {
+  if (sessions.length === 0) {
+    return (
+      <div className="px-4 py-8 text-center text-sm text-gray-400">
+        回收站是空的
+      </div>
+    );
+  }
+  const allSelected = selected.size === sessions.length;
+  return (
+    <div className="text-xs">
+      <div className="px-3 py-2 bg-gray-100 border-b border-gray-200 space-y-1.5">
+        <label className="flex items-center gap-2 cursor-pointer">
+          <input type="checkbox" checked={allSelected} onChange={onToggleAll} />
+          <span className="text-gray-600">全选</span>
+          <span className="text-gray-400">（{selected.size}/{sessions.length}）</span>
+        </label>
+        <div className="flex gap-1.5">
+          <button
+            onClick={onRestoreSelected}
+            disabled={selected.size === 0}
+            className="px-2 py-1 bg-blue-600 text-white rounded text-xs hover:bg-blue-700 disabled:opacity-40"
+          >
+            恢复({selected.size})
+          </button>
+          <button
+            onClick={onDeleteSelected}
+            disabled={selected.size === 0}
+            className="px-2 py-1 bg-red-500 text-white rounded text-xs hover:bg-red-600 disabled:opacity-40"
+          >
+            彻底删除({selected.size})
+          </button>
+          <button
+            onClick={onEmpty}
+            className="px-2 py-1 bg-gray-500 text-white rounded text-xs hover:bg-gray-600"
+          >
+            清空
+          </button>
+        </div>
+      </div>
+      {sessions.map((s) => (
+        <div
+          key={s.id}
+          className="group flex items-center gap-2 px-3 py-2 border-b border-gray-100"
+        >
+          <input
+            type="checkbox"
+            checked={selected.has(s.id)}
+            onChange={() => onToggle(s.id)}
+          />
+          <span className="flex-1 truncate text-gray-700">{s.title}</span>
+          <button
+            onClick={() => onRestore(s.id)}
+            className="opacity-0 group-hover:opacity-100 text-blue-500 hover:text-blue-700"
+          >
+            恢复
+          </button>
+          <button
+            onClick={() => onDelete(s.id)}
+            className="opacity-0 group-hover:opacity-100 text-red-400 hover:text-red-600"
+          >
+            彻底删
+          </button>
+        </div>
+      ))}
     </div>
   );
 }

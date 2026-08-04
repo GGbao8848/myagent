@@ -86,51 +86,67 @@ export const api = {
   deleteProfileObservation: (id: string) => json(`/api/profile/observations/${id}`, { method: "DELETE" }),
 };
 
-/** 发送消息并消费 SSE 事件流 */
+/** 发送消息并消费 SSE 事件流（401 时刷新 token 重试一次，与普通 API 请求一致） */
 export async function chatStream(
   sessionId: string,
   content: string,
   onEvent: (evt: SSEChatEvent) => void,
   signal?: AbortSignal
 ): Promise<void> {
-  const { access } = getTokens();
-  const resp = await fetch(`/api/sessions/${sessionId}/chat`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      ...(access ? { Authorization: `Bearer ${access}` } : {}),
-    },
-    body: JSON.stringify({ content } satisfies ChatRequestDto),
-    signal,
-  });
-  if (!resp.ok || !resp.body) {
-    const text = await resp.text();
-    throw new Error(text || `HTTP ${resp.status}`);
-  }
+  const doStream = async (): Promise<void> => {
+    const { access } = getTokens();
+    const resp = await fetch(`/api/sessions/${sessionId}/chat`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...(access ? { Authorization: `Bearer ${access}` } : {}),
+      },
+      body: JSON.stringify({ content } satisfies ChatRequestDto),
+      signal,
+    });
+    if (!resp.ok || !resp.body) {
+      const text = await resp.text();
+      throw new Error(text || `HTTP ${resp.status}`);
+    }
 
-  const reader = resp.body.getReader();
-  const decoder = new TextDecoder();
-  let buffer = "";
-  try {
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      buffer += decoder.decode(value, { stream: true });
-      // 按 \n\n 切分 SSE 帧
-      const frames = buffer.split("\n\n");
-      buffer = frames.pop() ?? "";
-      for (const frame of frames) {
-        const line = frame.trim().split("\n").find((l) => l.startsWith("data:"));
-        if (!line) continue;
-        try {
-          const data = JSON.parse(line.slice(5).trim()) as SSEChatEvent;
-          onEvent(data);
-        } catch {
-          /* 忽略解析失败的帧 */
+    const reader = resp.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        // 按 \n\n 切分 SSE 帧
+        const frames = buffer.split("\n\n");
+        buffer = frames.pop() ?? "";
+        for (const frame of frames) {
+          const line = frame.trim().split("\n").find((l) => l.startsWith("data:"));
+          if (!line) continue;
+          try {
+            const data = JSON.parse(line.slice(5).trim()) as SSEChatEvent;
+            onEvent(data);
+          } catch {
+            /* 忽略解析失败的帧 */
+          }
         }
       }
+    } finally {
+      reader.releaseLock();
     }
-  } finally {
-    reader.releaseLock();
+  };
+
+  try {
+    await doStream();
+  } catch (e) {
+    // 401：token 过期，刷新后重试一次
+    if ((e as Error).message.includes("401") || String((e as Error).message).includes("未授权")) {
+      const ok = await refreshAccessToken();
+      if (ok) {
+        await doStream();
+        return;
+      }
+    }
+    throw e;
   }
 }

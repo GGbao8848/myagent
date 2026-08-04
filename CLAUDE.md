@@ -87,5 +87,21 @@ pm2 restart br-agent-web      # 重启前端
 - **.env 加载**：server 入口 `index.ts` 用 dotenv 加载 `.env`（生产 `ENCRYPTION_KEY`、`MAX_CONCURRENT_GENERATIONS` 等必须配在 `.env`）
 - **前端生产**：`npm run preview` 服务 build 产物，端口 9005 + `/api` 代理（vite preview 配置在 vite.config.ts）
 - **并发上限**：`MAX_CONCURRENT_GENERATIONS`（默认 700）控制全局同时生成数，超限返回 503
-- Windows 下 PM2 `script` 字段必须用 `npm.cmd`（不是 `npm`）
+- **Windows PM2 启动**：不能直接用 `npm.cmd`（Node 解析批处理失败），配置里直接跑 tsx/vite 的 js 入口（`node_modules/tsx/dist/cli.mjs` / `node_modules/vite/bin/vite.js`），避免弹 cmd 窗口
 - 部署前确保：PostgreSQL、Keycloak、vLLM/外部模型可达；数据库已 `db:push`
+
+## 外部服务自启动（Windows 启动文件夹）
+
+PostgreSQL 和 Keycloak 通过启动文件夹（`%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup`）的 VBS 静默启动（无窗口）：
+- `start_postgres_hidden.vbs` → `pg_ctl -D D:\PostgreSQL\18\data start`（幂等，已在跑不重复）
+- `start_keycloak_hidden.vbs` → `D:\keycloak-26.7.0\start_keycloak.bat`
+
+前后端由 PM2 自启（pm2-startup + pm2 save）。服务器重启后整套自动恢复。
+
+手动启动（服务挂了排查时）：
+```bash
+# PostgreSQL
+D:\PostgreSQL\18\bin\pg_ctl.exe -D D:\PostgreSQL\18\data -l D:\PostgreSQL\18\data\pglog.txt start
+# Keycloak
+双击 D:\keycloak-26.7.0\start_keycloak.bat
+```

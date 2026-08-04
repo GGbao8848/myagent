@@ -116,6 +116,18 @@ export interface LlmProviderInput {
   maxTokens?: number;
 }
 
+// ── 记忆画像 ──
+export interface ProfileObservationDto {
+  id: string;
+  content: string;
+  confidence: number;
+  source: string; // explicit=手动 / auto=对话提取
+  enabled: boolean;
+  seenCount: number;
+  createdAt: string;
+  lastSeenAt: string;
+}
+
 export interface ChatRequestDto {
   content: string;
 }

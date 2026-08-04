@@ -8,6 +8,7 @@ import { getEnabledMcpTools } from "../mcp/mcp.service.js";
 import { getActiveProvider } from "../llm/llm.service.js";
 import { decryptKey } from "../llm/llm.crypto.js";
 import { buildSkillPromptAsync } from "../skills/skills.service.js";
+import { getProfilePrompt, extractObservationsAsync } from "../profile/profile.service.js";
 import type { TimelineEntry } from "../../agent/runner.js";
 
 // 进行中的生成（用于停止）
@@ -76,10 +77,15 @@ export function registerChatRoutes(app: FastifyInstance): void {
         content: m.content,
       }));
 
-      // 技能注入 system prompt
-      const { prompt: skillPrompt } = await buildSkillPromptAsync(user.username);
+      // 技能 + 用户画像注入 system prompt
+      const [skillPromptResult, profilePrompt] = await Promise.all([
+        buildSkillPromptAsync(user.username),
+        getProfilePrompt(user.username),
+      ]);
       const systemPrompt =
-        "你是一个简洁的企业级 AI 助手，用中文回答。需要时使用提供的工具。" + skillPrompt;
+        "你是一个简洁的企业级 AI 助手，用中文回答。需要时使用提供的工具。" +
+        skillPromptResult.prompt +
+        profilePrompt;
 
       reply.raw.writeHead(200, {
         "Content-Type": "text/event-stream",
@@ -162,6 +168,13 @@ export function registerChatRoutes(app: FastifyInstance): void {
         reply.raw.end();
       } finally {
         inFlight.delete(sessionId);
+        // 对话结束后异步提取用户偏好观察（fire-and-forget，不阻塞响应）
+        if (!controller.signal.aborted) {
+          void extractObservationsAsync(
+            user.username,
+            llmMessages.map((m) => ({ role: m.role, content: m.content }))
+          );
+        }
       }
     }
   );

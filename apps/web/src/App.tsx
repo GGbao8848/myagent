@@ -5,9 +5,10 @@ import DialogueView from "./views/DialogueView";
 import SkillsView from "./views/SkillsView";
 import McpView from "./views/McpView";
 import LlmView from "./views/LlmView";
+import MemoryView from "./views/MemoryView";
 import type { MessageDto } from "@br-agent/shared";
 
-type View = "dialogue" | "skills" | "mcp" | "llm";
+type View = "dialogue" | "skills" | "mcp" | "llm" | "memory";
 
 export default function App() {
   const [authed, setAuthed] = useState<boolean | null>(null);
@@ -108,6 +109,14 @@ export default function App() {
           >
             模型配置
           </button>
+          <button
+            onClick={() => setView("memory")}
+            className={`w-full text-left px-3 py-2 rounded-md text-sm ${
+              view === "memory" ? "bg-blue-50 text-blue-700" : "text-gray-700 hover:bg-gray-100"
+            }`}
+          >
+            记忆
+          </button>
         </nav>
         <div className="p-3 border-t border-gray-100">
           <button
@@ -127,8 +136,10 @@ export default function App() {
           <SkillsView />
         ) : view === "mcp" ? (
           <McpView />
-        ) : (
+        ) : view === "llm" ? (
           <LlmView />
+        ) : (
+          <MemoryView />
         )}
       </main>
     </div>

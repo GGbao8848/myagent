@@ -1,10 +1,11 @@
-// 内置工具：脚本执行（供技能脚本调用）
+// 内置工具：脚本执行（技能脚本 + 通用 Python 沙箱执行）
 import { tool } from "langchain";
 import { z } from "zod";
 import { spawn } from "node:child_process";
 import { resolve, relative, join } from "node:path";
-import { existsSync } from "node:fs";
+import { existsSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { loadConfig } from "../config.js";
+import { checkPythonSafety, monitorMemory } from "./sandbox.js";
 
 const config = loadConfig();
 
@@ -19,14 +20,66 @@ function safeResolve(cwd: string, script: string): string {
   return full;
 }
 
-// 运行技能目录内的 Python 脚本
+// 运行 Python：统一执行器（AST 安全检查 + 内存监控 + 超时）
+async function runPython(
+  pythonArgs: string[],
+  cwd: string,
+  opts: { timeout: number; maxMemoryMb: number }
+): Promise<string> {
+  return new Promise<string>((resolvePromise) => {
+    const proc = spawn("python", pythonArgs, {
+      cwd,
+      env: { ...process.env },
+      shell: false,
+    });
+    let stdout = "";
+    let stderr = "";
+    let finished = false;
+    let killed = false;
+    const finish = (result: string) => {
+      if (!finished) {
+        finished = true;
+        stopMonitor();
+        resolvePromise(result);
+      }
+    };
+    const timer = setTimeout(() => {
+      killed = true;
+      proc.kill();
+      finish(JSON.stringify({ error: `脚本超时（${opts.timeout}s）` }));
+    }, opts.timeout * 1000);
+    // 内存监控：超限 kill
+    let stopMonitor = () => {};
+    proc.on("spawn", () => {
+      stopMonitor = monitorMemory(proc.pid!, opts.maxMemoryMb, (mb) => {
+        killed = true;
+        proc.kill();
+        clearTimeout(timer);
+        finish(JSON.stringify({ error: `内存超限（${Math.round(mb)}MB > ${opts.maxMemoryMb}MB）` }));
+      });
+    });
+    proc.stdout.on("data", (d) => (stdout += d.toString()));
+    proc.stderr.on("data", (d) => (stderr += d.toString()));
+    proc.on("close", (code) => {
+      clearTimeout(timer);
+      finish(JSON.stringify({ exitCode: killed ? "killed" : code, stdout, stderr }));
+    });
+    proc.on("error", (e) => {
+      clearTimeout(timer);
+      finish(JSON.stringify({ error: e.message }));
+    });
+  });
+}
+
+// 运行技能目录内的 Python 脚本（增强：AST 检查 + 内存监控）
 const runScript = tool(
-  async ({ cwd, script, args, input, timeout }: {
+  async ({ cwd, script, args, input, timeout, maxMemoryMb }: {
     cwd: string;
     script: string;
     args: string[];
     input: string;
     timeout: number;
+    maxMemoryMb: number;
   }) => {
     try {
       const scriptPath = safeResolve(cwd, script);
@@ -34,39 +87,16 @@ const runScript = tool(
       if (!existsSync(scriptPath)) {
         return JSON.stringify({ error: `脚本不存在：${scriptPath}` });
       }
-      return await new Promise<string>((resolvePromise) => {
-        const proc = spawn("python", [scriptPath, ...args], {
-          cwd: workdir,
-          env: { ...process.env },
-          shell: false,
-        });
-        let stdout = "";
-        let stderr = "";
-        let finished = false;
-        const finish = (result: string) => {
-          if (!finished) {
-            finished = true;
-            resolvePromise(result);
-          }
-        };
-        const timer = setTimeout(() => {
-          proc.kill();
-          finish(JSON.stringify({ error: `脚本超时（${timeout}s）` }));
-        }, (timeout ?? 60) * 1000);
-        proc.stdout.on("data", (d) => (stdout += d.toString()));
-        proc.stderr.on("data", (d) => (stderr += d.toString()));
-        proc.on("close", (code) => {
-          clearTimeout(timer);
-          finish(JSON.stringify({ exitCode: code, stdout, stderr }));
-        });
-        proc.on("error", (e) => {
-          clearTimeout(timer);
-          finish(JSON.stringify({ error: e.message }));
-        });
-        if (input) {
-          proc.stdin.write(input);
-        }
-        proc.stdin.end();
+      // 读取脚本内容做安全检查
+      const { readFileSync } = await import("node:fs");
+      const source = readFileSync(scriptPath, "utf8");
+      const check = await checkPythonSafety(source);
+      if (!check.safe) {
+        return JSON.stringify({ error: `脚本被沙箱拒绝：${check.reason}` });
+      }
+      return await runPython([scriptPath, ...args], workdir, {
+        timeout,
+        maxMemoryMb,
       });
     } catch (e) {
       return JSON.stringify({ error: (e as Error).message });
@@ -82,10 +112,45 @@ const runScript = tool(
       args: z.array(z.string()).default([]).describe("命令行参数"),
       input: z.string().default("").describe("stdin 输入（JSON 字符串）"),
       timeout: z.number().default(60).describe("超时秒数"),
+      maxMemoryMb: z.number().default(256).describe("内存上限 MB"),
+    }),
+  }
+);
+
+// 执行 AI 生成的 Python 代码（沙箱隔离）
+const runPythonTool = tool(
+  async ({ code, timeout, maxMemoryMb }: { code: string; timeout: number; maxMemoryMb: number }) => {
+    try {
+      const check = await checkPythonSafety(code);
+      if (!check.safe) {
+        return JSON.stringify({ error: `代码被沙箱拒绝：${check.reason}` });
+      }
+      // 写到 data/sandbox/<uuid>.py 执行
+      const sandboxRoot = resolve(config.dataDir, "sandbox");
+      mkdirSync(sandboxRoot, { recursive: true });
+      const filePath = join(sandboxRoot, `run_${Date.now()}.py`);
+      writeFileSync(filePath, code, "utf8");
+      try {
+        return await runPython([filePath], sandboxRoot, { timeout, maxMemoryMb });
+      } finally {
+        rmSync(filePath, { force: true });
+      }
+    } catch (e) {
+      return JSON.stringify({ error: (e as Error).message });
+    }
+  },
+  {
+    name: "run_python",
+    description:
+      "执行用户提供的 Python 代码（沙箱隔离，禁止系统/网络/文件写入操作）。用于计算、数据处理等纯代码任务。返回 JSON {exitCode, stdout, stderr}。",
+    schema: z.object({
+      code: z.string().describe("要执行的 Python 代码"),
+      timeout: z.number().default(30).describe("超时秒数"),
+      maxMemoryMb: z.number().default(256).describe("内存上限 MB"),
     }),
   }
 );
 
 export function createBuiltinTools() {
-  return [runScript];
+  return [runScript, runPythonTool];
 }

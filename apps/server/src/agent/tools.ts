@@ -72,7 +72,8 @@ async function runPython(
   });
 }
 
-// 运行技能目录内的 Python 脚本（增强：AST 检查 + 内存监控）
+// 运行技能目录内的 Python 脚本（技能脚本为用户安装的可信业务代码，不套 AI 代码的 AST 拦截；
+// 联网/读写文件是技能的正当能力，沙箱只防失控：超时 + 内存监控）
 const runScript = tool(
   async ({ cwd, script, args, input, timeout, maxMemoryMb }: {
     cwd: string;
@@ -87,13 +88,6 @@ const runScript = tool(
       const workdir = resolve(config.dataDir, cwd);
       if (!existsSync(scriptPath)) {
         return JSON.stringify({ error: `脚本不存在：${scriptPath}` });
-      }
-      // 读取脚本内容做安全检查
-      const { readFileSync } = await import("node:fs");
-      const source = readFileSync(scriptPath, "utf8");
-      const check = await checkPythonSafety(source);
-      if (!check.safe) {
-        return JSON.stringify({ error: `脚本被沙箱拒绝：${check.reason}` });
       }
       return await runPython([scriptPath, ...args], workdir, {
         timeout,

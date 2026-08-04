@@ -108,7 +108,13 @@ export function monitorMemory(
       if (lines.length === 0) return; // 进程已退出
       const fields = lines[0].match(/"([^"]*)"/g) ?? [];
       const memStr = fields[4]?.replace(/"/g, "") ?? "";
-      const mb = parseFloat(memStr.replace(/[,\sKMB]/g, ""));
+      // tasklist 内存字段形如 "5,132 K"（KB）或 "1,024 M"，按单位换算成 MB
+      const memMatch = memStr.trim().match(/^([\d,.]+)\s*([KMGT]?B)?$/i);
+      if (!memMatch) return;
+      const raw = parseFloat(memMatch[1].replace(/,/g, ""));
+      const unit = (memMatch[2] ?? "B").toUpperCase();
+      const kb = unit === "K" ? raw : unit === "M" ? raw * 1024 : unit === "G" ? raw * 1024 * 1024 : raw;
+      const mb = kb / 1024;
       if (mb > maxMb) {
         stopped = true;
         clearInterval(timer);

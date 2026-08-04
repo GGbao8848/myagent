@@ -8,6 +8,7 @@ export interface AppConfig {
   keycloakClientId: string;
   port: number;
   dataDir: string;
+  maxConcurrentGenerations: number; // 全局对话并发上限
 }
 
 export function loadConfig(): AppConfig {
@@ -20,5 +21,6 @@ export function loadConfig(): AppConfig {
     keycloakClientId: process.env.KEYCLOAK_CLIENT_ID ?? "br-agent",
     port: Number(process.env.PORT ?? 9004),
     dataDir: process.env.DATA_DIR ?? "data",
+    maxConcurrentGenerations: Number(process.env.MAX_CONCURRENT_GENERATIONS ?? 700),
   };
 }

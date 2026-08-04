@@ -4,6 +4,7 @@ import { prisma } from "../../db/index.js";
 import { runAgent } from "../../agent/runner.js";
 import { createAgentTools } from "../../agent/tool-manager.js";
 import { createChatModel } from "../../agent/factory.js";
+import { loadConfig } from "../../config.js";
 import { getActiveProvider } from "../llm/llm.service.js";
 import { decryptKey } from "../llm/llm.crypto.js";
 import { buildSkillPromptAsync } from "../skills/skills.service.js";
@@ -12,6 +13,10 @@ import type { TimelineEntry } from "../../agent/runner.js";
 
 // 进行中的生成（用于停止）
 const inFlight = new Map<string, AbortController>();
+
+// 全局并发上限：同时进行的对话生成数（防并发请求打挂服务），env 可配 MAX_CONCURRENT_GENERATIONS
+const MAX_CONCURRENT_GENERATIONS = loadConfig().maxConcurrentGenerations;
+const activeGenerations = new Set<string>();
 
 // 历史上下文裁剪：vLLM 32768 上下文，保留最近 N 轮
 const MAX_HISTORY_MESSAGES = 20;
@@ -56,6 +61,13 @@ export function registerChatRoutes(app: FastifyInstance): void {
         reply.code(409).send({ error: "该会话正在生成中" });
         return;
       }
+
+      // 全局并发上限：超过同时生成数时拒绝，防过载
+      if (activeGenerations.size >= MAX_CONCURRENT_GENERATIONS) {
+        reply.code(503).send({ error: "系统繁忙，请稍后再试" });
+        return;
+      }
+      activeGenerations.add(sessionId);
 
       const controller = new AbortController();
       inFlight.set(sessionId, controller);
@@ -172,6 +184,7 @@ export function registerChatRoutes(app: FastifyInstance): void {
         reply.raw.end();
       } finally {
         inFlight.delete(sessionId);
+        activeGenerations.delete(sessionId);
         // 对话结束后异步提取用户偏好观察（fire-and-forget，不阻塞响应）
         if (!controller.signal.aborted) {
           void extractObservationsAsync(

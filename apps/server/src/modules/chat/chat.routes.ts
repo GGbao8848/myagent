@@ -10,6 +10,7 @@ import { decryptKey } from "../llm/llm.crypto.js";
 import { buildSkillPromptAsync } from "../skills/skills.service.js";
 import { getProfilePrompt, extractObservationsAsync } from "../profile/profile.service.js";
 import type { TimelineEntry } from "../../agent/runner.js";
+import type { FormDto, FormField } from "@br-agent/shared";
 
 // 进行中的生成（用于停止）
 const inFlight = new Map<string, AbortController>();
@@ -23,6 +24,61 @@ const MAX_HISTORY_MESSAGES = 20;
 
 function sseFrame(data: unknown): string {
   return `data: ${JSON.stringify(data)}\n\n`;
+}
+
+/** 从 run_script 输出中提取【表单数据】JSON，组装成 FormDto（skill 查询数据 → 系统渲染表单） */
+export function extractFormFromScript(content: string): FormDto | null {
+  try {
+    const wrapped = JSON.parse(content) as { stdout?: string };
+    const stdout = typeof wrapped.stdout === "string" ? wrapped.stdout : "";
+    const m = stdout.match(/【表单数据】([\s\S]*?)【表单数据结束】/);
+    if (!m) return null;
+    const data = JSON.parse(m[1].trim()) as {
+      date?: string;
+      work_type?: string;
+      project_id?: string;
+      hours?: string;
+      phase_id?: string;
+      phases?: Array<{ label: string; value: string }>;
+    };
+    const fields: FormField[] = [
+      { key: "date", label: "报工日期", type: "text", value: data.date ?? "", required: true },
+      {
+        key: "work_type",
+        label: "工作类别",
+        type: "select",
+        value: data.work_type ?? "部门工作",
+        required: true,
+        options: [
+          { label: "部门工作", value: "部门工作" },
+          { label: "项目工时", value: "项目工时" },
+          { label: "销售支持", value: "销售支持" },
+        ],
+      },
+      ...(data.project_id
+        ? ([{ key: "project_id", label: "项目", type: "text" as const, value: data.project_id, required: true }] as FormField[])
+        : []),
+      {
+        key: "phase_id",
+        label: "任务/阶段",
+        type: "select",
+        value: data.phase_id ?? "",
+        required: true,
+        options: data.phases ?? [],
+      },
+      { key: "content", label: "报工内容", type: "text", value: "", required: true, placeholder: "请填写报工内容" },
+      { key: "hours", label: "工时", type: "number", value: data.hours ?? "", required: true, placeholder: "考勤自动算出的工时，可按需修改" },
+    ];
+    return {
+      id: "report",
+      title: "报工单",
+      description: "智能体已根据考勤和任务列表预填，请核对并修改后确认提交。",
+      submitLabel: "确认提交",
+      fields,
+    };
+  } catch {
+    return null;
+  }
 }
 
 export function registerChatRoutes(app: FastifyInstance): void {
@@ -108,6 +164,10 @@ export function registerChatRoutes(app: FastifyInstance): void {
       let assistantContent = "";
       let assistantThinking = "";
       let assistantTimeline: TimelineEntry[] = [];
+      // 文本表单标记缓冲：【表单】{json}【表单结束】→ 解析成 form 事件（兜底路径）
+      let formTagBuf = "";
+      // run_script 检测：记录 --form-data 调用，工具结果到达时自动渲染表单
+      let pendingFormArgs: string[] | null = null;
 
       try {
         // 注入完整工具集：内置沙箱工具 + 用户启用 MCP 工具（ToolManager 统一注册）
@@ -134,6 +194,52 @@ export function registerChatRoutes(app: FastifyInstance): void {
           signal: controller.signal,
           recursionLimit: 30,
           onEvent: (evt) => {
+            // 文本表单标记提取：content 流中匹配【表单】...【表单结束】→ 转 form 事件，标记本身不展示
+            if (evt.event === "content") {
+              formTagBuf += evt.content;
+              let m = formTagBuf.match(/【表单】([\s\S]*?)【表单结束】/);
+              while (m) {
+                const before = formTagBuf.slice(0, m.index);
+                if (before) reply.raw.write(sseFrame({ event: "content", content: before }));
+                try {
+                  // 容忍 markdown 围栏与多余文字：先剥围栏，失败再提取首个 {...}
+                  let raw = m[1].trim();
+                  const fence = raw.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/);
+                  if (fence) raw = fence[1].trim();
+                  let form: unknown;
+                  try {
+                    form = JSON.parse(raw);
+                  } catch {
+                    const obj = raw.match(/\{[\s\S]*\}/);
+                    if (!obj) throw new Error("no json");
+                    form = JSON.parse(obj[0]);
+                  }
+                  reply.raw.write(sseFrame({ event: "form", form }));
+                } catch {
+                  reply.raw.write(sseFrame({ event: "content", content: m[0] }));
+                }
+                formTagBuf = formTagBuf.slice((m.index ?? 0) + m[0].length);
+                m = formTagBuf.match(/【表单】([\s\S]*?)【表单结束】/);
+              }
+              return;
+            }
+            // skill 数据渲染：检测 run_script 的 --form-data，工具结果到达时自动渲染表单
+            if (evt.event === "tool_call" && evt.tool_name === "run_script") {
+              const args = (evt.args as { args?: string[] } | undefined)?.args ?? [];
+              pendingFormArgs = args.includes("--form-data") ? args : null;
+              reply.raw.write(sseFrame(evt));
+              return;
+            }
+            if (evt.event === "tool_result" && evt.tool_name === "run_script" && pendingFormArgs && !evt.is_error) {
+              const form = extractFormFromScript(evt.content);
+              pendingFormArgs = null;
+              if (form) {
+                reply.raw.write(sseFrame({ event: "form", form }));
+                reply.raw.write(sseFrame({ event: "tool_result", tool_name: "run_script", content: "✅ 已生成报工表单，请核对后点击「确认提交」", is_error: false }));
+                return;
+              }
+            }
+            pendingFormArgs = null;
             reply.raw.write(sseFrame(evt));
           },
         });
@@ -151,7 +257,8 @@ export function registerChatRoutes(app: FastifyInstance): void {
           });
         }
 
-        // 持久化 assistant 消息
+        // 持久化 assistant 消息（先移除文本表单标记，避免刷新后显示标记原文）
+        assistantContent = assistantContent.replace(/【表单】[\s\S]*?【表单结束】/g, "").trim();
         const saved = await prisma.message.create({
           data: {
             sessionId,
@@ -173,7 +280,7 @@ export function registerChatRoutes(app: FastifyInstance): void {
               data: {
                 sessionId,
                 role: "assistant",
-                content: assistantContent || "(生成中断)",
+                content: assistantContent.replace(/【表单】[\s\S]*?【表单结束】/g, "").trim() || "(生成中断)",
                 thinking: assistantThinking || null,
                 timeline: assistantTimeline as never,
               },

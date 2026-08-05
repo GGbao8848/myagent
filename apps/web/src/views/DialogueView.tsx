@@ -3,7 +3,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { api, chatStream } from "../api";
-import type { MessageDto, SessionDto, SSEChatEvent, TimelineEntry } from "@br-agent/shared";
+import type { FormDto, FormFieldOption, MessageDto, SessionDto, SSEChatEvent, TimelineEntry } from "@br-agent/shared";
 
 interface LocalMessage {
   id: string; // 本地临时 id 或服务端 id
@@ -13,6 +13,8 @@ interface LocalMessage {
   timeline?: TimelineEntry[];
   streaming?: boolean;
   error?: string;
+  form?: FormDto; // 表单卡片（agent 通过 request_form 输出，不持久化）
+  formSubmitted?: boolean; // 本地标记：该表单已提交（禁用卡片）
 }
 
 // 会话视图状态：可见消息 + 是否在生成（流式内容由占位 assistant 消息承载）
@@ -33,6 +35,7 @@ interface FlowState {
   thinking: string;
   timeline: TimelineEntry[]; // 完整交叉时间线：thinking 段与 tool_call/tool_result 按顺序交替
   error: string;
+  form?: FormDto; // 待渲染的表单卡片
 }
 
 /** 把段追加进完整时间线：thinking 段连续时累积，工具段直接新开（实现思考/工具交叉） */
@@ -251,7 +254,7 @@ export default function DialogueView({ activeSessionId, onSelectSession }: Props
         ...s,
         messages: s.messages.map((m) =>
           m.id === flow.id
-            ? { ...m, content: flow.content, thinking: flow.thinking, timeline: flow.timeline, error: flow.error, streaming: true }
+            ? { ...m, content: flow.content, thinking: flow.thinking, timeline: flow.timeline, error: flow.error, form: flow.form, streaming: true }
             : m
         ),
         streaming: true,
@@ -286,6 +289,10 @@ export default function DialogueView({ activeSessionId, onSelectSession }: Props
         flow.content += e.content;
         apply();
       },
+      form: (e) => {
+        flow.form = e.form;
+        apply();
+      },
       tool_call: (e) => {
         flow.timeline.push({ type: "tool_call", name: e.tool_name, args: e.args, id: e.id });
         apply();
@@ -318,6 +325,18 @@ export default function DialogueView({ activeSessionId, onSelectSession }: Props
         finish();
       }
     }
+  };
+
+  // 表单提交：标记卡片已提交 → 将字段值作为一条消息发出（agent 据此执行）
+  const submitForm = (sessionId: string, formId: string, values: Record<string, string>) => {
+    setStateFor(sessionId, (s) => ({
+      ...s,
+      messages: s.messages.map((m) =>
+        m.form && m.form.id === formId ? { ...m, formSubmitted: true } : m
+      ),
+    }));
+    const message = `【表单提交：${formId}】\n${JSON.stringify(values)}`;
+    void send(sessionId, message);
   };
 
   const stop = (sessionId: string) => {
@@ -413,7 +432,12 @@ export default function DialogueView({ activeSessionId, onSelectSession }: Props
           ) : (
             <>
               {messages.map((m) => (
-                <MessageBubble key={m.id} message={m} />
+                <MessageBubble
+                  key={m.id}
+                  message={m}
+                  sessionId={activeSessionId!}
+                  onSubmitForm={submitForm}
+                />
               ))}
             </>
           )}
@@ -553,7 +577,15 @@ function TrashView({
 }
 
 // 消息气泡
-function MessageBubble({ message }: { message: LocalMessage }) {
+function MessageBubble({
+  message,
+  sessionId,
+  onSubmitForm,
+}: {
+  message: LocalMessage;
+  sessionId: string;
+  onSubmitForm: (sessionId: string, formId: string, values: Record<string, string>) => void;
+}) {
   if (message.role === "user") {
     return (
       <div className="flex justify-end">
@@ -593,6 +625,13 @@ function MessageBubble({ message }: { message: LocalMessage }) {
           <div className="md-content bg-white border border-gray-200 rounded-xl px-4 py-3">
             <ReactMarkdown remarkPlugins={[remarkGfm]}>{message.content}</ReactMarkdown>
           </div>
+        ) : null}
+        {message.form ? (
+          <FormCard
+            form={message.form}
+            disabled={message.formSubmitted}
+            onSubmit={(values) => onSubmitForm(sessionId, message.form!.id, values)}
+          />
         ) : null}
         {message.error ? (
           <div className="text-red-500 text-sm bg-red-50 border border-red-200 rounded-xl px-4 py-2">
@@ -664,6 +703,171 @@ function ToolBlock({ entry }: { entry: Extract<TimelineEntry, { type: "tool_call
         <pre className="px-3 py-2 text-green-800 whitespace-pre-wrap max-h-40 overflow-y-auto">
           {entry.content}
         </pre>
+      ) : null}
+    </div>
+  );
+}
+
+// 可编辑表单卡片：agent 通过 request_form 输出，用户核对修改后确认提交
+export function FormCard({
+  form,
+  disabled,
+  onSubmit,
+}: {
+  form: FormDto;
+  disabled?: boolean;
+  onSubmit: (values: Record<string, string>) => void;
+}) {
+  const [values, setValues] = useState<Record<string, string>>(
+    () => Object.fromEntries(form.fields.map((f) => [f.key, f.value ?? ""]))
+  );
+  const [errors, setErrors] = useState<Record<string, string>>({});
+
+  const setField = (key: string, value: string) => setValues((v) => ({ ...v, [key]: value }));
+
+  const handleSubmit = () => {
+    const errs: Record<string, string> = {};
+    for (const f of form.fields) {
+      if (f.required && !(values[f.key] ?? "").trim()) errs[f.key] = "必填";
+    }
+    setErrors(errs);
+    if (Object.keys(errs).length > 0) return;
+    onSubmit(values);
+  };
+
+  return (
+    <div className="bg-white border border-gray-200 rounded-xl p-4 space-y-3 max-w-lg">
+      <div className="flex items-center justify-between">
+        <h3 className="font-semibold text-gray-800">{form.title}</h3>
+        {disabled ? <span className="text-xs text-green-600">✓ 已提交</span> : null}
+      </div>
+      {form.description ? <p className="text-xs text-gray-500">{form.description}</p> : null}
+      {form.fields.map((f) => (
+        <div key={f.key}>
+          <label className="block text-xs text-gray-500 mb-1">
+            {f.label}
+            {f.required ? <span className="text-red-500"> *</span> : null}
+          </label>
+          {f.type === "select" ? (
+            <SearchSelect
+              options={f.options}
+              value={values[f.key] ?? ""}
+              onChange={(v) => setField(f.key, v)}
+              placeholder={f.placeholder}
+              disabled={disabled}
+            />
+          ) : f.type === "textarea" ? (
+            <textarea
+              className="w-full border border-gray-300 rounded-md px-2 py-1.5 text-sm disabled:bg-gray-50 focus:outline-none focus:border-blue-400"
+              rows={3}
+              value={values[f.key] ?? ""}
+              onChange={(e) => setField(f.key, e.target.value)}
+              placeholder={f.placeholder}
+              disabled={disabled}
+            />
+          ) : (
+            <input
+              type={f.type === "number" ? "number" : "text"}
+              className="w-full border border-gray-300 rounded-md px-2 py-1.5 text-sm disabled:bg-gray-50 focus:outline-none focus:border-blue-400"
+              value={values[f.key] ?? ""}
+              onChange={(e) => setField(f.key, e.target.value)}
+              placeholder={f.placeholder}
+              disabled={disabled}
+            />
+          )}
+          {errors[f.key] ? <p className="text-xs text-red-500 mt-0.5">{errors[f.key]}</p> : null}
+        </div>
+      ))}
+      <button
+        onClick={handleSubmit}
+        disabled={disabled}
+        className="w-full px-4 py-2 bg-blue-600 text-white rounded-lg text-sm hover:bg-blue-700 disabled:opacity-50"
+      >
+        {form.submitLabel ?? "确认提交"}
+      </button>
+    </div>
+  );
+}
+
+// 带搜索框的下拉选择：选项可能很多，输入关键词实时过滤
+export function SearchSelect({
+  options,
+  value,
+  onChange,
+  placeholder,
+  disabled,
+}: {
+  options: FormFieldOption[];
+  value: string;
+  onChange: (v: string) => void;
+  placeholder?: string;
+  disabled?: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState("");
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const onDocClick = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener("mousedown", onDocClick);
+    return () => document.removeEventListener("mousedown", onDocClick);
+  }, [open]);
+
+  const selected = options.find((o) => o.value === value);
+  const filtered = options.filter((o) => o.label.toLowerCase().includes(query.toLowerCase()));
+
+  return (
+    <div ref={ref} className="relative">
+      <button
+        type="button"
+        onClick={() => {
+          if (disabled) return;
+          setOpen(!open);
+          setQuery("");
+        }}
+        className="w-full text-left border border-gray-300 rounded-md px-2 py-1.5 text-sm bg-white disabled:bg-gray-50 flex items-center justify-between focus:outline-none focus:border-blue-400"
+        disabled={disabled}
+      >
+        <span className={selected ? "" : "text-gray-400"}>
+          {selected ? selected.label : placeholder ?? "请选择"}
+        </span>
+        <span className="text-gray-400 text-xs">{open ? "▲" : "▼"}</span>
+      </button>
+      {open ? (
+        <div className="absolute z-20 mt-1 w-full bg-white border border-gray-200 rounded-md shadow-lg overflow-hidden">
+          <input
+            autoFocus
+            className="w-full px-2 py-1.5 text-sm border-b border-gray-200 outline-none"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="搜索…"
+          />
+          <ul className="max-h-48 overflow-y-auto py-1">
+            {filtered.length === 0 ? (
+              <li className="px-2 py-1.5 text-xs text-gray-400">无匹配选项</li>
+            ) : (
+              filtered.map((o) => (
+                <li key={o.value}>
+                  <button
+                    type="button"
+                    className={`w-full text-left px-2 py-1.5 text-sm hover:bg-blue-50 ${
+                      o.value === value ? "bg-blue-50 text-blue-700" : "text-gray-700"
+                    }`}
+                    onClick={() => {
+                      onChange(o.value);
+                      setOpen(false);
+                    }}
+                  >
+                    {o.label}
+                  </button>
+                </li>
+              ))
+            )}
+          </ul>
+        </div>
       ) : null}
     </div>
   );

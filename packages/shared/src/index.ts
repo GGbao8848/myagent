@@ -22,12 +22,33 @@ export interface TimelineToolResult {
 
 export type TimelineEntry = TimelineThinking | TimelineToolCall | TimelineToolResult;
 
+// ── 表单式交互（智能体输出可编辑表单，用户核对提交）──
+export interface FormFieldOption {
+  label: string;
+  value: string;
+}
+
+export type FormField =
+  | { key: string; label: string; type: "text"; value?: string; placeholder?: string; required?: boolean }
+  | { key: string; label: string; type: "number"; value?: string; placeholder?: string; required?: boolean }
+  | { key: string; label: string; type: "textarea"; value?: string; placeholder?: string; required?: boolean }
+  | { key: string; label: string; type: "select"; options: FormFieldOption[]; value?: string; required?: boolean; placeholder?: string };
+
+export interface FormDto {
+  id: string; // 表单标识（提交时回传），如 "report"
+  title: string;
+  description?: string;
+  fields: FormField[];
+  submitLabel?: string;
+}
+
 // ── SSE 事件（POST /api/sessions/:id/chat 响应流）──
 export type SSEChatEvent =
   | { event: "thinking"; content: string }
   | { event: "content"; content: string }
   | { event: "tool_call"; tool_name: string; args: Record<string, unknown>; id: string }
   | { event: "tool_result"; tool_name: string; content: string; is_error?: boolean }
+  | { event: "form"; form: FormDto }
   | { event: "done"; message_id: number }
   | { event: "error"; content: string };
 

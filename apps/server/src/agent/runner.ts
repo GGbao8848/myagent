@@ -132,11 +132,13 @@ export async function runAgent(opts: RunAgentOptions): Promise<RunAgentResult> {
       }
 
       let buf = "";
+      let thinkSeen = false; // text 中是否出现过 <think 标签（决定是否按 qwen 切分）
       let boundary = -1; // buf 中 "</think>" 结束位置；-1 = 尚未出现
       for await (const chunk of m.text) {
         if (opts.signal?.aborted) break;
         if (!chunk) continue;
         buf += chunk;
+        if (!thinkSeen && buf.includes("<think")) thinkSeen = true;
         if (boundary < 0) {
           const idx = buf.indexOf("</think>");
           if (idx >= 0) boundary = idx + "</think>".length;
@@ -145,11 +147,20 @@ export async function runAgent(opts: RunAgentOptions): Promise<RunAgentResult> {
 
         let thinkPart = "";
         let contentPart = "";
-        if (hasTool || (!reasoningConsumed && boundary < 0)) {
-          // 工具轮次：全部当思考；无 reasoning 且无 </think>（qwen 思考段未闭合）：当思考
+        if (hasTool) {
+          // 工具轮次：模型文本全当思考（该轮不产生正文）
           thinkPart = chunk;
-        } else if (reasoningConsumed || chunkStart >= boundary) {
-          // deepseek（reasoning 已消费）：text 全当正文；或 qwen 正文段
+        } else if (reasoningConsumed) {
+          // deepseek：思考已在 reasoning 投影消费，text 全当正文
+          contentPart = chunk;
+        } else if (!thinkSeen) {
+          // 模型不用 <think> 标签（如中转 deepseek/OpenAI 兼容）：text 就是正文
+          contentPart = chunk;
+        } else if (boundary < 0) {
+          // qwen：已见 <think> 但 </think> 未闭合 → 思考段
+          thinkPart = chunk;
+        } else if (chunkStart >= boundary) {
+          // qwen：已闭合，此段在边界后 → 正文
           contentPart = chunk;
         } else {
           // qwen chunk 跨越 </think> 边界：前半思考、后半正文（去掉正文前导空白）
@@ -186,6 +197,7 @@ export async function runAgent(opts: RunAgentOptions): Promise<RunAgentResult> {
       }
       const name = tc.name;
       const input = (tc.input ?? {}) as Record<string, unknown>;
+
       await emit({ event: "tool_call", tool_name: name, args: input, id: tc.callId });
       timeline.push({ type: "tool_call", name, args: input, id: tc.callId });
 
@@ -242,7 +254,18 @@ export async function runAgent(opts: RunAgentOptions): Promise<RunAgentResult> {
       timeline.push({ type: "thinking", content: currentThinking.trim() });
     }
 
-    return { thinking: thinkingOut, content: contentOut, timeline };
+    // 收尾兜底：qwen 偶发把整段回复包在 <think> 内且未闭合，导致 content 为空。
+    // 此时把思考的最后一整段作为正文返回，避免前端出现"(无回答)"。
+    let content = contentOut;
+    if (!content.trim() && thinkingOut.trim()) {
+      const segments = thinkingOut
+        .split(/\n\n+/)
+        .map((s) => s.trim())
+        .filter(Boolean);
+      content = segments[segments.length - 1] ?? "";
+    }
+
+    return { thinking: thinkingOut, content, timeline };
   } catch (e) {
     if (opts.signal?.aborted) {
       return { thinking: thinkingOut, content: contentOut, timeline };

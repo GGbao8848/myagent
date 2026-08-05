@@ -3,6 +3,7 @@ import { createBuiltinTools } from "../agent/tools.js";
 
 async function main() {
   const runPython = createBuiltinTools().find((t) => t.name === "run_python");
+  if (!runPython) throw new Error("未找到 run_python 工具");
   const res = await runPython.invoke({
     code: "x = []\nwhile True:\n    x.append([0] * 1000000)",
     maxMemoryMb: 100,

@@ -133,16 +133,17 @@ export default function DialogueView({ activeSessionId, onSelectSession }: Props
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
-  // 新建会话：总是切换到干净会话（若已有未发消息的空会话则复用它，避免堆积空会话）
-  const newSession = async () => {
+  // 新建会话：总是切换到干净会话（若已有未发消息的空会话则复用它，避免堆积空会话）；返回会话 id 供发送复用
+  const newSession = async (): Promise<string> => {
     const existingEmpty = sessions.find((s) => s.title === "新对话");
     if (existingEmpty) {
       onSelectSession(existingEmpty.id);
-      return;
+      return existingEmpty.id;
     }
     const s = await api.createSession();
     setSessions((prev) => [s, ...prev]);
     onSelectSession(s.id);
+    return s.id;
   };
 
   const deleteSession = async (id: string) => {
@@ -348,12 +349,14 @@ export default function DialogueView({ activeSessionId, onSelectSession }: Props
     }
   };
 
-  // 输入框发送绑定当前活动会话
-  const handleSend = () => {
+  // 输入框发送：无活动会话时先自动新建（复用空会话或创建）再发送
+  const handleSend = async () => {
     const content = input.trim();
-    if (!content || !activeSessionId || state.streaming) return;
+    if (!content || state.streaming) return;
+    let sessionId = activeSessionId;
+    if (!sessionId) sessionId = await newSession();
     setInput("");
-    send(activeSessionId, content);
+    send(sessionId, content);
   };
 
   return (
@@ -474,7 +477,7 @@ export default function DialogueView({ activeSessionId, onSelectSession }: Props
               />
               <button
                 onClick={handleSend}
-                disabled={!input.trim() || !activeSessionId}
+                disabled={!input.trim() || state.streaming}
                 className="px-4 py-2 bg-blue-600 text-white rounded-md text-sm hover:bg-blue-700 disabled:opacity-40"
               >
                 发送

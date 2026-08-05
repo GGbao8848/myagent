@@ -1,6 +1,6 @@
 // API 层：fetch 封装（自动带 token、401 刷新重试）+ SSE 消费
 import type { ChatRequestDto, LlmProviderDto, LlmProviderInput, LlmProviderListDto, McpServerDto, McpTestResultDto, MessageDto, ProfileObservationDto, SessionDetailDto, SessionDto, SkillDto, SSEChatEvent } from "@br-agent/shared";
-import { getTokens, refreshAccessToken } from "./auth";
+import { getTokens, refreshAccessToken, handleSessionExpired } from "./auth";
 
 async function request(path: string, options: RequestInit = {}, retry = true): Promise<Response> {
   const { access } = getTokens();
@@ -16,6 +16,8 @@ async function request(path: string, options: RequestInit = {}, retry = true): P
   if (resp.status === 401 && retry) {
     const ok = await refreshAccessToken();
     if (ok) return request(path, options, false);
+    // 刷新失败：会话已过期，清 token 并切回登录页
+    handleSessionExpired();
   }
   return resp;
 }
@@ -156,6 +158,8 @@ export async function chatStream(
         await doStream();
         return;
       }
+      // 刷新失败：会话已过期，清 token 并切回登录页
+      handleSessionExpired();
     }
     throw e;
   }

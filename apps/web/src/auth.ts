@@ -100,12 +100,26 @@ export async function refreshAccessToken(): Promise<boolean> {
   }
 }
 
-/** 登出：调 Keycloak logout + 清理本地 */
-export function logout(): void {
-  const idToken = localStorage.getItem(ID_TOKEN_KEY);
+/** 清除本地 token（不跳转） */
+export function clearTokens(): void {
   localStorage.removeItem(TOKEN_KEY);
   localStorage.removeItem(REFRESH_KEY);
   localStorage.removeItem(ID_TOKEN_KEY);
+}
+
+/** 会话过期事件：App 监听后切回登录页 */
+export const SESSION_EXPIRED_EVENT = "br-agent:session-expired";
+
+/** 登录过期：清 token 并通知 App 跳回登录页 */
+export function handleSessionExpired(): void {
+  clearTokens();
+  window.dispatchEvent(new Event(SESSION_EXPIRED_EVENT));
+}
+
+/** 登出：调 Keycloak logout + 清理本地 */
+export function logout(): void {
+  const idToken = localStorage.getItem(ID_TOKEN_KEY);
+  clearTokens();
   const params = new URLSearchParams({
     client_id: KC_CLIENT_ID,
     post_logout_redirect_uri: window.location.origin,

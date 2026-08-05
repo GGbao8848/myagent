@@ -1,6 +1,6 @@
 // 根组件：登录态判断 + 视图切换
 import { useEffect, useState } from "react";
-import { isAuthenticated, handleCallback, login, logout, getUserName } from "./auth";
+import { isAuthenticated, handleCallback, login, logout, getUserName, SESSION_EXPIRED_EVENT } from "./auth";
 import DialogueView from "./views/DialogueView";
 import SkillsView from "./views/SkillsView";
 import McpView from "./views/McpView";
@@ -42,6 +42,13 @@ export default function App() {
       return;
     }
     setAuthed(isAuthenticated());
+  }, []);
+
+  useEffect(() => {
+    // 会话过期（token 刷新失败）：清登录态，切回登录页
+    const onSessionExpired = () => setAuthed(false);
+    window.addEventListener(SESSION_EXPIRED_EVENT, onSessionExpired);
+    return () => window.removeEventListener(SESSION_EXPIRED_EVENT, onSessionExpired);
   }, []);
 
   if (authed === null) {

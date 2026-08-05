@@ -135,19 +135,23 @@ export default function App() {
         </div>
       </aside>
 
-      {/* 主内容 */}
+      {/* 主内容：所有视图保持挂载（切换仅隐藏），避免对话流式状态/SSE 连接随卸载丢失 */}
       <main className="flex-1 flex flex-col min-w-0">
-        {view === "dialogue" ? (
+        <div className={view === "dialogue" ? "flex-1 flex flex-col min-w-0 min-h-0" : "hidden"}>
           <DialogueView activeSessionId={activeSessionId} onSelectSession={setActiveSessionId} />
-        ) : view === "skills" ? (
+        </div>
+        <div className={view === "skills" ? "flex-1 flex flex-col min-w-0 min-h-0" : "hidden"}>
           <SkillsView />
-        ) : view === "mcp" ? (
+        </div>
+        <div className={view === "mcp" ? "flex-1 flex flex-col min-w-0 min-h-0" : "hidden"}>
           <McpView />
-        ) : view === "llm" ? (
+        </div>
+        <div className={view === "llm" ? "flex-1 flex flex-col min-w-0 min-h-0" : "hidden"}>
           <LlmView />
-        ) : (
+        </div>
+        <div className={view === "memory" ? "flex-1 flex flex-col min-w-0 min-h-0" : "hidden"}>
           <MemoryView />
-        )}
+        </div>
       </main>
     </div>
   );

@@ -192,6 +192,12 @@ export function registerChatRoutes(app: FastifyInstance): void {
           signal: controller.signal,
           recursionLimit: 30,
           onEvent: (evt) => {
+            // thinking 流式累积：runAgent 异常时 result 无返回值，需靠累积的 thinking 持久化中间过程
+            if (evt.event === "thinking") {
+              assistantThinking += evt.content;
+              reply.raw.write(sseFrame(evt));
+              return;
+            }
             // 文本表单标记提取：content 流中匹配【表单】...【表单结束】→ 转 form 事件，标记本身不展示
             if (evt.event === "content") {
               formTagBuf += evt.content;
@@ -280,19 +286,19 @@ export function registerChatRoutes(app: FastifyInstance): void {
       } catch (e) {
         const message = (e as Error).message;
         if (!controller.signal.aborted) {
-          // 错误时也尽量保存已生成内容
-          if (assistantContent || assistantThinking || lastForm) {
-            await prisma.message.create({
-              data: {
-                sessionId,
-                role: "assistant",
-                content: assistantContent.replace(/【表单】[\s\S]*?【表单结束】/g, "").trim() || "(生成中断)",
-                thinking: assistantThinking || null,
-                timeline: assistantTimeline as never,
-                form: lastForm as never,
-              },
-            });
-          }
+          // 错误时也保存已生成内容（含 thinking 与错误文本），保证刷新后中间过程/报错可见
+          const errText = `⚠️ ${message}`;
+          const savedContent = assistantContent.replace(/【表单】[\s\S]*?【表单结束】/g, "").trim() || errText;
+          await prisma.message.create({
+            data: {
+              sessionId,
+              role: "assistant",
+              content: savedContent,
+              thinking: assistantThinking || null,
+              timeline: assistantTimeline as never,
+              form: lastForm as never,
+            },
+          });
           reply.raw.write(sseFrame({ event: "error", content: message }));
         }
         reply.raw.end();

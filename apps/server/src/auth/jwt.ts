@@ -3,14 +3,15 @@ import type { FastifyReply, FastifyRequest } from "fastify";
 import { createRemoteJWKSet, jwtVerify } from "jose";
 import { loadConfig } from "../config.js";
 
-const config = loadConfig();
+// 注意：不能在此处缓存 loadConfig()——ESM 会在 index.ts 的 dotenv 加载前求值本模块，
+// 缓存的 issuer 将是 .env 未加载时的默认值。改为运行时读取。
 let jwks: ReturnType<typeof createRemoteJWKSet> | null = null;
 let jwksIssuer = "";
 
-function getJwks() {
-  if (!jwks || jwksIssuer !== config.keycloakIssuer) {
-    jwks = createRemoteJWKSet(new URL(`${config.keycloakIssuer}/protocol/openid-connect/certs`));
-    jwksIssuer = config.keycloakIssuer;
+function getJwks(issuer: string) {
+  if (!jwks || jwksIssuer !== issuer) {
+    jwks = createRemoteJWKSet(new URL(`${issuer}/protocol/openid-connect/certs`));
+    jwksIssuer = issuer;
   }
   return jwks;
 }
@@ -38,7 +39,8 @@ export async function requireAuth(
   }
   const token = header.slice(7);
   try {
-    const { payload } = await jwtVerify(token, getJwks(), {
+    const config = loadConfig();
+    const { payload } = await jwtVerify(token, getJwks(config.keycloakIssuer), {
       issuer: config.keycloakIssuer,
     });
     const username = (payload.preferred_username as string) ?? (payload.sub as string);

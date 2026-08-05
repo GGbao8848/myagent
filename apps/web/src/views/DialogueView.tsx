@@ -1,5 +1,5 @@
 // 对话页：会话列表 + 消息流水线 + SSE 流式（每会话独立运行，切换不中断）
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { api, chatStream } from "../api";
@@ -814,18 +814,9 @@ export function SearchSelect({
   const [query, setQuery] = useState("");
   const [display, setDisplay] = useState("");
   const ref = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (!open) return;
-    const onDocClick = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
-    };
-    document.addEventListener("mousedown", onDocClick);
-    return () => document.removeEventListener("mousedown", onDocClick);
-  }, [open]);
-
-  const selected = options.find((o) => o.value === value);
-  const filtered = options.filter((o) => o.label.toLowerCase().includes(query.toLowerCase()));
+  const listRef = useRef<HTMLDivElement>(null);
+  // 浮层定位（fixed 视口坐标）：悬浮于表单上方，不被 overflow 容器裁剪、不撑出滚动条
+  const [pos, setPos] = useState<{ top: number; left: number; width: number; up: boolean } | null>(null);
 
   // 同步显示文本：value 命中选项 → 显示自然语言 label；否则显示输入值（自定义）
   useEffect(() => {
@@ -833,11 +824,64 @@ export function SearchSelect({
     setDisplay(o ? o.label : value);
   }, [value, options]);
 
-  // 可输入模式：直接输入新值（新项目/任务名），下拉提供选项 + "使用输入值"
-  if (allowCustom) {
-    const matched = options.some((o) => o.value === query || o.label === query);
-    return (
-      <div ref={ref} className="relative">
+  useEffect(() => {
+    if (!open) return;
+    const onDocClick = (e: MouseEvent) => {
+      const t = e.target as Node;
+      if (ref.current?.contains(t) || listRef.current?.contains(t)) return;
+      setOpen(false);
+    };
+    // 下拉内部滚动不关闭；外部任何滚动/窗口缩放关闭（fixed 浮层坐标会失效）
+    const onScroll = (e: Event) => {
+      if (listRef.current?.contains(e.target as Node)) return;
+      setOpen(false);
+    };
+    const onResize = () => setOpen(false);
+    document.addEventListener("mousedown", onDocClick);
+    document.addEventListener("scroll", onScroll, true);
+    window.addEventListener("resize", onResize);
+    return () => {
+      document.removeEventListener("mousedown", onDocClick);
+      document.removeEventListener("scroll", onScroll, true);
+      window.removeEventListener("resize", onResize);
+    };
+  }, [open]);
+
+  const openMenu = () => {
+    if (disabled) return;
+    if (!open) {
+      const el = ref.current?.firstElementChild as HTMLElement | null;
+      if (el) {
+        const r = el.getBoundingClientRect();
+        setPos({ top: r.bottom + 4, left: r.left, width: r.width, up: false });
+      }
+      setQuery("");
+    }
+    setOpen(true);
+  };
+
+  // 渲染后按实际列表高度校准：视口放不下则向上展开（paint 前完成，无闪烁）
+  useLayoutEffect(() => {
+    if (!open || !pos) return;
+    const el = ref.current?.firstElementChild as HTMLElement | null;
+    if (!el) return;
+    const r = el.getBoundingClientRect();
+    const h = listRef.current?.offsetHeight ?? 0;
+    const up = r.bottom + h + 4 > window.innerHeight && r.top > h + 4;
+    setPos((prev) => {
+      const top = up ? r.top - h - 4 : r.bottom + 4;
+      if (prev && prev.top === top && prev.left === r.left && prev.width === r.width && prev.up === up) return prev;
+      return { top, left: r.left, width: r.width, up };
+    });
+  }, [open, pos, query]);
+
+  const selected = options.find((o) => o.value === value);
+  const filtered = options.filter((o) => o.label.toLowerCase().includes(query.toLowerCase()));
+  const matched = options.some((o) => o.value === query || o.label === query);
+
+  return (
+    <div ref={ref} className="relative">
+      {allowCustom ? (
         <input
           type="text"
           value={display}
@@ -847,103 +891,77 @@ export function SearchSelect({
             onChange(v);
             setQuery(v);
           }}
-          onFocus={() => setOpen(true)}
+          onFocus={openMenu}
           placeholder={placeholder}
           disabled={disabled}
           className="w-full border border-gray-300 rounded-md px-2 py-1.5 text-sm disabled:bg-gray-50 focus:outline-none focus:border-blue-400"
         />
-        {open ? (
-          <div className="absolute z-20 mt-1 w-full bg-white border border-gray-200 rounded-md shadow-lg overflow-hidden">
-            <ul className="max-h-48 overflow-y-auto py-1">
-              {filtered.map((o) => (
-                <li key={o.value}>
-                  <button
-                    type="button"
-                    className={`w-full text-left px-2 py-1.5 text-sm hover:bg-blue-50 ${
-                      o.value === value ? "bg-blue-50 text-blue-700" : "text-gray-700"
-                    }`}
-                    onClick={() => {
-                      onChange(o.value);
-                      setDisplay(o.label);
-                      setOpen(false);
-                    }}
-                  >
-                    {o.label}
-                  </button>
-                </li>
-              ))}
-              {query && !matched ? (
-                <li>
-                  <button
-                    type="button"
-                    className="w-full text-left px-2 py-1.5 text-sm text-blue-600 hover:bg-blue-50"
-                    onClick={() => {
-                      onChange(query);
-                      setDisplay(query);
-                      setOpen(false);
-                    }}
-                  >
-                    使用输入值：{query}
-                  </button>
-                </li>
-              ) : null}
-              {filtered.length === 0 && !query ? (
-                <li className="px-2 py-1.5 text-xs text-gray-400">无选项</li>
-              ) : null}
-            </ul>
-          </div>
-        ) : null}
-      </div>
-    );
-  }
-
-  return (
-    <div ref={ref} className="relative">
-      <button
-        type="button"
-        onClick={() => {
-          if (disabled) return;
-          setOpen(!open);
-          setQuery("");
-        }}
-        className="w-full text-left border border-gray-300 rounded-md px-2 py-1.5 text-sm bg-white disabled:bg-gray-50 flex items-center justify-between focus:outline-none focus:border-blue-400"
-        disabled={disabled}
-      >
-        <span className={selected ? "" : "text-gray-400"}>
-          {selected ? selected.label : placeholder ?? "请选择"}
-        </span>
-        <span className="text-gray-400 text-xs">{open ? "▲" : "▼"}</span>
-      </button>
-      {open ? (
-        <div className="absolute z-20 mt-1 w-full bg-white border border-gray-200 rounded-md shadow-lg overflow-hidden">
-          <input
-            autoFocus
-            className="w-full px-2 py-1.5 text-sm border-b border-gray-200 outline-none"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder="搜索…"
-          />
-          <ul className="max-h-48 overflow-y-auto py-1">
+      ) : (
+        <button
+          type="button"
+          onClick={() => (open ? setOpen(false) : openMenu())}
+          className="w-full text-left border border-gray-300 rounded-md px-2 py-1.5 text-sm bg-white disabled:bg-gray-50 flex items-center justify-between focus:outline-none focus:border-blue-400"
+          disabled={disabled}
+        >
+          <span className={selected ? "" : "text-gray-400"}>
+            {selected ? selected.label : placeholder ?? "请选择"}
+          </span>
+          <span className="text-gray-400 text-xs">{open ? "▲" : "▼"}</span>
+        </button>
+      )}
+      {open && pos ? (
+        <div
+          ref={listRef}
+          className="fixed z-50 bg-white border border-gray-200 rounded-md shadow-lg overflow-hidden"
+          style={{ top: pos.top, left: pos.left, width: pos.width }}
+        >
+          {!allowCustom ? (
+            <input
+              autoFocus
+              className="w-full px-2 py-1.5 text-sm border-b border-gray-200 outline-none"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="搜索…"
+            />
+          ) : null}
+          <ul className="max-h-56 overflow-y-auto py-1">
+            {filtered.map((o) => (
+              <li key={o.value}>
+                <button
+                  type="button"
+                  className={`w-full text-left px-2 py-1.5 text-sm hover:bg-blue-50 ${
+                    o.value === value ? "bg-blue-50 text-blue-700" : "text-gray-700"
+                  }`}
+                  onClick={() => {
+                    onChange(o.value);
+                    setDisplay(o.label);
+                    setOpen(false);
+                  }}
+                >
+                  {o.label}
+                </button>
+              </li>
+            ))}
+            {allowCustom && query && !matched ? (
+              <li>
+                <button
+                  type="button"
+                  className="w-full text-left px-2 py-1.5 text-sm text-blue-600 hover:bg-blue-50"
+                  onClick={() => {
+                    onChange(query);
+                    setDisplay(query);
+                    setOpen(false);
+                  }}
+                >
+                  使用输入值：{query}
+                </button>
+              </li>
+            ) : null}
             {filtered.length === 0 ? (
-              <li className="px-2 py-1.5 text-xs text-gray-400">无匹配选项</li>
-            ) : (
-              filtered.map((o) => (
-                <li key={o.value}>
-                  <button
-                    type="button"
-                    className={`w-full text-left px-2 py-1.5 text-sm hover:bg-blue-50 ${
-                      o.value === value ? "bg-blue-50 text-blue-700" : "text-gray-700"
-                    }`}
-                    onClick={() => {
-                      onChange(o.value);
-                      setOpen(false);
-                    }}
-                  >
-                    {o.label}
-                  </button>
-                </li>
-              ))
-            )}
+              <li className="px-2 py-1.5 text-xs text-gray-400">
+                {allowCustom && !query ? "无选项" : "无匹配选项"}
+              </li>
+            ) : null}
           </ul>
         </div>
       ) : null}

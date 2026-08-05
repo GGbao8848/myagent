@@ -26,6 +26,7 @@ model Message {
   content   String
   thinking  String?
   timeline  Json?
+  form      Json? // 表单卡片数据（assistant 消息附带，刷新后重新渲染）
   createdAt DateTime @default(now()) @map("created_at")
 
   session Session @relation(fields: [sessionId], references: [id], onDelete: Cascade)

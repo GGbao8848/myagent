@@ -106,6 +106,7 @@ export function registerSessionRoutes(app: FastifyInstance): void {
         content: m.content,
         thinking: m.thinking,
         timeline: m.timeline as SessionDetailDto["messages"][0]["timeline"],
+        form: m.form as SessionDetailDto["messages"][0]["form"],
         createdAt: m.createdAt.toISOString(),
       })),
     };

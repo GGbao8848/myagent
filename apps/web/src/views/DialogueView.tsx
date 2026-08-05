@@ -3,7 +3,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { api, chatStream } from "../api";
-import type { FormDto, FormFieldOption, MessageDto, SessionDto, SSEChatEvent, TimelineEntry } from "@br-agent/shared";
+import type { FormColumn, FormDto, FormFieldOption, MessageDto, SessionDto, SSEChatEvent, TimelineEntry } from "@br-agent/shared";
 
 interface LocalMessage {
   id: string; // 本地临时 id 或服务端 id
@@ -102,6 +102,7 @@ export default function DialogueView({ activeSessionId, onSelectSession }: Props
           content: m.content,
           thinking: m.thinking ?? undefined,
           timeline: m.timeline ?? undefined,
+          form: m.form ?? undefined,
         }));
         if (flow) {
           // 该会话有后台流：保留内存态（含正在生成的占位消息与已生成部分），
@@ -327,15 +328,15 @@ export default function DialogueView({ activeSessionId, onSelectSession }: Props
     }
   };
 
-  // 表单提交：标记卡片已提交 → 将字段值作为一条消息发出（agent 据此执行）
-  const submitForm = (sessionId: string, formId: string, values: Record<string, string>) => {
+  // 表单提交：标记卡片已提交 → 将字段值/表格行作为一条消息发出（agent 据此执行）
+  const submitForm = (sessionId: string, formId: string, payload: Record<string, string> | Array<Record<string, string>>) => {
     setStateFor(sessionId, (s) => ({
       ...s,
       messages: s.messages.map((m) =>
         m.form && m.form.id === formId ? { ...m, formSubmitted: true } : m
       ),
     }));
-    const message = `【表单提交：${formId}】\n${JSON.stringify(values)}`;
+    const message = `【表单提交：${formId}】\n${JSON.stringify(Array.isArray(payload) ? { rows: payload } : payload)}`;
     void send(sessionId, message);
   };
 
@@ -584,7 +585,7 @@ function MessageBubble({
 }: {
   message: LocalMessage;
   sessionId: string;
-  onSubmitForm: (sessionId: string, formId: string, values: Record<string, string>) => void;
+  onSubmitForm: (sessionId: string, formId: string, payload: Record<string, string> | Array<Record<string, string>>) => void;
 }) {
   if (message.role === "user") {
     return (
@@ -708,7 +709,7 @@ function ToolBlock({ entry }: { entry: Extract<TimelineEntry, { type: "tool_call
   );
 }
 
-// 可编辑表单卡片：agent 通过 request_form 输出，用户核对修改后确认提交
+// 可编辑表单卡片：表格模式（横向表头+联动+多行）或垂直字段模式
 export function FormCard({
   form,
   disabled,
@@ -716,10 +717,14 @@ export function FormCard({
 }: {
   form: FormDto;
   disabled?: boolean;
-  onSubmit: (values: Record<string, string>) => void;
+  onSubmit: (payload: Record<string, string> | Array<Record<string, string>>) => void;
 }) {
+  // 表格模式
+  if (form.columns && form.columns.length) {
+    return <FormTable form={form} disabled={disabled} onSubmit={onSubmit} />;
+  }
   const [values, setValues] = useState<Record<string, string>>(
-    () => Object.fromEntries(form.fields.map((f) => [f.key, f.value ?? ""]))
+    () => Object.fromEntries((form.fields ?? []).map((f) => [f.key, f.value ?? ""]))
   );
   const [errors, setErrors] = useState<Record<string, string>>({});
 
@@ -727,7 +732,7 @@ export function FormCard({
 
   const handleSubmit = () => {
     const errs: Record<string, string> = {};
-    for (const f of form.fields) {
+    for (const f of form.fields ?? []) {
       if (f.required && !(values[f.key] ?? "").trim()) errs[f.key] = "必填";
     }
     setErrors(errs);
@@ -736,13 +741,13 @@ export function FormCard({
   };
 
   return (
-    <div className="bg-white border border-gray-200 rounded-xl p-4 space-y-3 max-w-lg">
+    <div className="bg-indigo-50 border border-indigo-200 rounded-xl p-4 space-y-3 max-w-lg">
       <div className="flex items-center justify-between">
         <h3 className="font-semibold text-gray-800">{form.title}</h3>
         {disabled ? <span className="text-xs text-green-600">✓ 已提交</span> : null}
       </div>
       {form.description ? <p className="text-xs text-gray-500">{form.description}</p> : null}
-      {form.fields.map((f) => (
+      {(form.fields ?? []).map((f) => (
         <div key={f.key}>
           <label className="block text-xs text-gray-500 mb-1">
             {f.label}
@@ -796,15 +801,18 @@ export function SearchSelect({
   onChange,
   placeholder,
   disabled,
+  allowCustom,
 }: {
   options: FormFieldOption[];
   value: string;
   onChange: (v: string) => void;
   placeholder?: string;
   disabled?: boolean;
+  allowCustom?: boolean; // 允许输入不在选项中的新值（如新项目/任务名）
 }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
+  const [display, setDisplay] = useState("");
   const ref = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -818,6 +826,76 @@ export function SearchSelect({
 
   const selected = options.find((o) => o.value === value);
   const filtered = options.filter((o) => o.label.toLowerCase().includes(query.toLowerCase()));
+
+  // 同步显示文本：value 命中选项 → 显示自然语言 label；否则显示输入值（自定义）
+  useEffect(() => {
+    const o = options.find((x) => x.value === value);
+    setDisplay(o ? o.label : value);
+  }, [value, options]);
+
+  // 可输入模式：直接输入新值（新项目/任务名），下拉提供选项 + "使用输入值"
+  if (allowCustom) {
+    const matched = options.some((o) => o.value === query || o.label === query);
+    return (
+      <div ref={ref} className="relative">
+        <input
+          type="text"
+          value={display}
+          onChange={(e) => {
+            const v = e.target.value;
+            setDisplay(v);
+            onChange(v);
+            setQuery(v);
+          }}
+          onFocus={() => setOpen(true)}
+          placeholder={placeholder}
+          disabled={disabled}
+          className="w-full border border-gray-300 rounded-md px-2 py-1.5 text-sm disabled:bg-gray-50 focus:outline-none focus:border-blue-400"
+        />
+        {open ? (
+          <div className="absolute z-20 mt-1 w-full bg-white border border-gray-200 rounded-md shadow-lg overflow-hidden">
+            <ul className="max-h-48 overflow-y-auto py-1">
+              {filtered.map((o) => (
+                <li key={o.value}>
+                  <button
+                    type="button"
+                    className={`w-full text-left px-2 py-1.5 text-sm hover:bg-blue-50 ${
+                      o.value === value ? "bg-blue-50 text-blue-700" : "text-gray-700"
+                    }`}
+                    onClick={() => {
+                      onChange(o.value);
+                      setDisplay(o.label);
+                      setOpen(false);
+                    }}
+                  >
+                    {o.label}
+                  </button>
+                </li>
+              ))}
+              {query && !matched ? (
+                <li>
+                  <button
+                    type="button"
+                    className="w-full text-left px-2 py-1.5 text-sm text-blue-600 hover:bg-blue-50"
+                    onClick={() => {
+                      onChange(query);
+                      setDisplay(query);
+                      setOpen(false);
+                    }}
+                  >
+                    使用输入值：{query}
+                  </button>
+                </li>
+              ) : null}
+              {filtered.length === 0 && !query ? (
+                <li className="px-2 py-1.5 text-xs text-gray-400">无选项</li>
+              ) : null}
+            </ul>
+          </div>
+        ) : null}
+      </div>
+    );
+  }
 
   return (
     <div ref={ref} className="relative">
@@ -868,6 +946,165 @@ export function SearchSelect({
             )}
           </ul>
         </div>
+      ) : null}
+    </div>
+  );
+}
+
+// 表格型表单：横向表头 + 列联动（工作类别→任务）+ 多行（拆分报工）
+function FormTable({
+  form,
+  disabled,
+  onSubmit,
+}: {
+  form: FormDto;
+  disabled?: boolean;
+  onSubmit: (rows: Array<Record<string, string>>) => void;
+}) {
+  const cols = form.columns ?? [];
+  const [rows, setRows] = useState<Array<Record<string, string>>>(() =>
+    form.rows && form.rows.length
+      ? form.rows.map((r) => ({ ...r }))
+      : [{ date: "", work_type: "部门工作", project_id: "", phase_id: "", content: "", std_hours: "", ovt_hours: "0" }]
+  );
+  const [errors, setErrors] = useState<Record<string, string>>({});
+
+  const setCell = (ri: number, key: string, v: string) => {
+    setRows((prev) =>
+      prev.map((r, i) => {
+        if (i !== ri) return r;
+        const next = { ...r, [key]: v };
+        // 父列变化 → 清空子列值（联动）
+        for (const c of cols) {
+          if (c.dependsOn?.includes(key)) next[c.key] = "";
+        }
+        return next;
+      })
+    );
+  };
+
+  // 拆分某行：原行工时减半、新行取另一半（总和不变，如 8 → 4+4）；任务/项目相同；内容留空
+  const splitRow = (ri: number) => {
+    setRows((prev) => {
+      const src = prev[ri] ?? {};
+      const total = parseFloat(src.std_hours ?? "0") || 0;
+      const half = total > 0 ? String(total / 2) : "";
+      const first = { ...src, std_hours: half };
+      const newRow: Record<string, string> = {
+        date: src.date ?? "",
+        work_type: src.work_type ?? "部门工作",
+        project_id: src.project_id ?? "",
+        phase_id: src.phase_id ?? "",
+        content: "",
+        std_hours: half,
+        ovt_hours: src.ovt_hours ?? "0",
+      };
+      return [...prev.slice(0, ri), first, newRow, ...prev.slice(ri + 1)];
+    });
+  };
+
+  const removeRow = (ri: number) => setRows((prev) => (prev.length > 1 ? prev.filter((_, i) => i !== ri) : prev));
+
+  const resolveOptions = (col: FormColumn, row: Record<string, string>): FormFieldOption[] => {
+    if (col.options) return col.options;
+    if (col.optionsBy && col.dependsOn) {
+      const key = col.dependsOn.filter((k) => (row[k] ?? "") !== "").map((k) => row[k]).join("|");
+      return col.optionsBy[key] ?? [];
+    }
+    return [];
+  };
+
+  const handleSubmit = () => {
+    const errs: Record<string, string> = {};
+    rows.forEach((r, ri) => {
+      if (!(r.phase_id ?? "").trim()) errs[`${ri}.phase_id`] = "必填";
+      if (!(r.content ?? "").trim()) errs[`${ri}.content`] = "必填";
+    });
+    setErrors(errs);
+    if (Object.keys(errs).length > 0) return;
+    onSubmit(rows);
+  };
+
+  return (
+    <div className="bg-indigo-50 border border-indigo-200 rounded-xl p-4 space-y-3">
+      <div className="flex items-center justify-between">
+        <h3 className="font-semibold text-gray-800">{form.title}</h3>
+        {disabled ? <span className="text-xs text-green-600">✓ 已提交</span> : null}
+      </div>
+      {form.description ? <p className="text-xs text-gray-500">{form.description}</p> : null}
+      <div className="overflow-x-auto">
+        <table className="w-full text-sm border-collapse min-w-[600px]">
+          <thead>
+            <tr>
+              {cols.map((c) => (
+                <th
+                  key={c.key}
+                  className="border border-gray-200 bg-gray-50 px-2 py-1.5 text-left text-xs font-medium text-gray-600 whitespace-nowrap"
+                >
+                  {c.label}
+                </th>
+              ))}
+              {!disabled ? <th className="border border-gray-200 bg-gray-50 px-2 py-1.5 w-10" /> : null}
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((row, ri) => (
+              <tr key={ri}>
+                {cols.map((col) => {
+                  // 项目列：部门工作时占位隐藏（仅项目类显示）
+                  const hideProject = col.key === "project_id" && (row.work_type ?? "") === "部门工作";
+                  return (
+                    <td key={col.key} className="border border-gray-200 px-1 py-1">
+                      {hideProject ? (
+                        <div className="px-2 py-1.5 text-xs text-gray-300">—</div>
+                      ) : col.type === "select" ? (
+                        <SearchSelect
+                          options={resolveOptions(col, row)}
+                          value={row[col.key] ?? ""}
+                          onChange={(v) => setCell(ri, col.key, v)}
+                          placeholder={col.label}
+                          disabled={disabled}
+                          allowCustom={col.key === "project_id" || col.key === "phase_id"}
+                        />
+                      ) : (
+                        <input
+                          type={col.type === "number" ? "number" : "text"}
+                          value={row[col.key] ?? ""}
+                          onChange={(e) => setCell(ri, col.key, e.target.value)}
+                          placeholder={col.key === "date" ? "YYYY-MM-DD" : col.label}
+                          disabled={disabled}
+                          className={`${
+                            col.key === "date" ? "w-28" : col.key === "std_hours" || col.key === "ovt_hours" ? "w-14" : "w-full"
+                          } border border-gray-300 rounded px-2 py-1.5 text-sm disabled:bg-gray-50 focus:outline-none focus:border-blue-400`}
+                        />
+                      )}
+                      {errors[`${ri}.${col.key}`] ? <p className="text-xs text-red-500 mt-0.5">必填</p> : null}
+                    </td>
+                  );
+                })}
+                {!disabled ? (
+                  <td className="border border-gray-200 px-1 py-1 text-center whitespace-nowrap">
+                    <button onClick={() => splitRow(ri)} className="text-xs text-blue-600 hover:underline mr-2">
+                      拆
+                    </button>
+                    <button
+                      onClick={() => removeRow(ri)}
+                      disabled={rows.length <= 1}
+                      className="text-xs text-red-500 hover:underline disabled:opacity-40"
+                    >
+                      删
+                    </button>
+                  </td>
+                ) : null}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      {!disabled ? (
+        <button onClick={handleSubmit} className="px-4 py-1.5 bg-blue-600 text-white rounded-md text-sm hover:bg-blue-700">
+          {form.submitLabel ?? "确认提交"}
+        </button>
       ) : null}
     </div>
   );

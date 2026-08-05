@@ -78,15 +78,15 @@ export default function App() {
   return (
     <div className="h-full flex bg-gray-50">
       {/* 侧边栏 */}
-      <aside className="w-64 bg-white border-r border-gray-200 flex flex-col">
+      <aside className="w-fit bg-white border-r border-gray-200 flex flex-col">
         <div className="p-4 border-b border-gray-100">
-          <h1 className="font-semibold text-gray-800">BR-Agent</h1>
+          <h1 className="text-lg font-semibold text-gray-800">BR-Agent</h1>
           <p className="text-xs text-gray-400 mt-0.5">{getUserName()}</p>
         </div>
         <nav className="flex-1 p-2 space-y-1">
           <button
             onClick={() => setView("dialogue")}
-            className={`w-full text-left px-3 py-2 rounded-md text-sm ${
+            className={`block whitespace-nowrap text-left px-3 py-2 rounded-md text-sm ${
               view === "dialogue" ? "bg-blue-50 text-blue-700" : "text-gray-700 hover:bg-gray-100"
             }`}
           >
@@ -94,7 +94,7 @@ export default function App() {
           </button>
           <button
             onClick={() => setView("skills")}
-            className={`w-full text-left px-3 py-2 rounded-md text-sm ${
+            className={`block whitespace-nowrap text-left px-3 py-2 rounded-md text-sm ${
               view === "skills" ? "bg-blue-50 text-blue-700" : "text-gray-700 hover:bg-gray-100"
             }`}
           >
@@ -102,7 +102,7 @@ export default function App() {
           </button>
           <button
             onClick={() => setView("mcp")}
-            className={`w-full text-left px-3 py-2 rounded-md text-sm ${
+            className={`block whitespace-nowrap text-left px-3 py-2 rounded-md text-sm ${
               view === "mcp" ? "bg-blue-50 text-blue-700" : "text-gray-700 hover:bg-gray-100"
             }`}
           >
@@ -110,7 +110,7 @@ export default function App() {
           </button>
           <button
             onClick={() => setView("llm")}
-            className={`w-full text-left px-3 py-2 rounded-md text-sm ${
+            className={`block whitespace-nowrap text-left px-3 py-2 rounded-md text-sm ${
               view === "llm" ? "bg-blue-50 text-blue-700" : "text-gray-700 hover:bg-gray-100"
             }`}
           >
@@ -118,7 +118,7 @@ export default function App() {
           </button>
           <button
             onClick={() => setView("memory")}
-            className={`w-full text-left px-3 py-2 rounded-md text-sm ${
+            className={`block whitespace-nowrap text-left px-3 py-2 rounded-md text-sm ${
               view === "memory" ? "bg-blue-50 text-blue-700" : "text-gray-700 hover:bg-gray-100"
             }`}
           >
@@ -128,7 +128,7 @@ export default function App() {
         <div className="p-3 border-t border-gray-100">
           <button
             onClick={() => logout()}
-            className="w-full text-left px-3 py-2 rounded-md text-sm text-gray-500 hover:bg-gray-100"
+            className="block whitespace-nowrap text-left px-3 py-2 rounded-md text-sm text-gray-500 hover:bg-gray-100"
           >
             退出登录
           </button>

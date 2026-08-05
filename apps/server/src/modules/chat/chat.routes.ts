@@ -10,7 +10,7 @@ import { decryptKey } from "../llm/llm.crypto.js";
 import { buildSkillPromptAsync } from "../skills/skills.service.js";
 import { getProfilePrompt, extractObservationsAsync } from "../profile/profile.service.js";
 import type { TimelineEntry } from "../../agent/runner.js";
-import type { FormDto, FormField } from "@br-agent/shared";
+import type { FormColumn, FormDto } from "@br-agent/shared";
 
 // 进行中的生成（用于停止）
 const inFlight = new Map<string, AbortController>();
@@ -26,7 +26,7 @@ function sseFrame(data: unknown): string {
   return `data: ${JSON.stringify(data)}\n\n`;
 }
 
-/** 从 run_script 输出中提取【表单数据】JSON，组装成 FormDto（skill 查询数据 → 系统渲染表单） */
+/** 从 run_script 输出中提取【表单数据】JSON，组装成表格型 FormDto（skill 查询数据 → 系统渲染表格表单） */
 export function extractFormFromScript(content: string): FormDto | null {
   try {
     const wrapped = JSON.parse(content) as { stdout?: string };
@@ -35,46 +35,42 @@ export function extractFormFromScript(content: string): FormDto | null {
     if (!m) return null;
     const data = JSON.parse(m[1].trim()) as {
       date?: string;
-      work_type?: string;
-      project_id?: string;
       hours?: string;
-      phase_id?: string;
-      phases?: Array<{ label: string; value: string }>;
+      workTypes?: string[];
+      commonTasks?: Record<string, Array<{ label: string; value: string }>>;
+      recentProjects?: Array<{ label: string; value: string }>;
+      recent?: { work_type?: string; phase_id?: string; phase_label?: string; content?: string; std_hours?: string; ovt_hours?: string };
     };
-    const fields: FormField[] = [
-      { key: "date", label: "报工日期", type: "text", value: data.date ?? "", required: true },
+    const workTypeOptions = (data.workTypes ?? ["部门工作", "项目工时", "销售支持"]).map((w) => ({ label: w, value: w }));
+    const recent = data.recent ?? {};
+    const columns: FormColumn[] = [
+      { key: "date", label: "报工日期", type: "text" },
+      { key: "work_type", label: "工作类别", type: "select", options: workTypeOptions },
+      { key: "project_id", label: "项目", type: "select", options: data.recentProjects ?? [] },
+      { key: "phase_id", label: "任务/阶段", type: "select", dependsOn: ["work_type"], optionsBy: data.commonTasks ?? {} },
+      { key: "content", label: "报工内容", type: "text" },
+      { key: "std_hours", label: "标准工时", type: "number" },
+      { key: "ovt_hours", label: "加班工时", type: "number" },
+    ];
+    const rows: Array<Record<string, string>> = [
       {
-        key: "work_type",
-        label: "工作类别",
-        type: "select",
-        value: data.work_type ?? "部门工作",
-        required: true,
-        options: [
-          { label: "部门工作", value: "部门工作" },
-          { label: "项目工时", value: "项目工时" },
-          { label: "销售支持", value: "销售支持" },
-        ],
+        date: data.date ?? "",
+        work_type: recent.work_type ?? "部门工作",
+        project_id: "",
+        phase_id: recent.phase_id ?? "",
+        content: recent.content ?? "",
+        std_hours: recent.std_hours ?? data.hours ?? "8",
+        ovt_hours: recent.ovt_hours ?? "0",
       },
-      ...(data.project_id
-        ? ([{ key: "project_id", label: "项目", type: "text" as const, value: data.project_id, required: true }] as FormField[])
-        : []),
-      {
-        key: "phase_id",
-        label: "任务/阶段",
-        type: "select",
-        value: data.phase_id ?? "",
-        required: true,
-        options: data.phases ?? [],
-      },
-      { key: "content", label: "报工内容", type: "text", value: "", required: true, placeholder: "请填写报工内容" },
-      { key: "hours", label: "工时", type: "number", value: data.hours ?? "", required: true, placeholder: "考勤自动算出的工时，可按需修改" },
     ];
     return {
       id: "report",
       title: "报工单",
-      description: "智能体已根据考勤和任务列表预填，请核对并修改后确认提交。",
+      description: "已按最近报工模式预填，请核对修改后确认提交（可按天拆分多行明细；项目/任务可输入名称）。",
       submitLabel: "确认提交",
-      fields,
+      addRowLabel: "+ 拆分（同日多明细）",
+      columns,
+      rows,
     };
   } catch {
     return null;
@@ -168,6 +164,8 @@ export function registerChatRoutes(app: FastifyInstance): void {
       let formTagBuf = "";
       // run_script 检测：记录 --form-data 调用，工具结果到达时自动渲染表单
       let pendingFormArgs: string[] | null = null;
+      // 本轮回合提取到的表单（持久化到 assistant 消息，刷新后重新渲染）
+      let lastForm: FormDto | null = null;
 
       try {
         // 注入完整工具集：内置沙箱工具 + 用户启用 MCP 工具（ToolManager 统一注册）
@@ -215,11 +213,17 @@ export function registerChatRoutes(app: FastifyInstance): void {
                     form = JSON.parse(obj[0]);
                   }
                   reply.raw.write(sseFrame({ event: "form", form }));
+                  lastForm = form as FormDto;
                 } catch {
                   reply.raw.write(sseFrame({ event: "content", content: m[0] }));
                 }
                 formTagBuf = formTagBuf.slice((m.index ?? 0) + m[0].length);
                 m = formTagBuf.match(/【表单】([\s\S]*?)【表单结束】/);
+              }
+              // flush 剩余非标记内容（保留未完成的【表单】前缀，等标记完整再解析）
+              if (formTagBuf && !formTagBuf.includes("【表单】")) {
+                reply.raw.write(sseFrame({ event: "content", content: formTagBuf }));
+                formTagBuf = "";
               }
               return;
             }
@@ -235,6 +239,7 @@ export function registerChatRoutes(app: FastifyInstance): void {
               pendingFormArgs = null;
               if (form) {
                 reply.raw.write(sseFrame({ event: "form", form }));
+                lastForm = form;
                 reply.raw.write(sseFrame({ event: "tool_result", tool_name: "run_script", content: "✅ 已生成报工表单，请核对后点击「确认提交」", is_error: false }));
                 return;
               }
@@ -266,6 +271,7 @@ export function registerChatRoutes(app: FastifyInstance): void {
             content: assistantContent || "(无回答)",
             thinking: assistantThinking || null,
             timeline: assistantTimeline as never,
+            form: lastForm as never,
           },
         });
         // 补发 message_id
@@ -275,7 +281,7 @@ export function registerChatRoutes(app: FastifyInstance): void {
         const message = (e as Error).message;
         if (!controller.signal.aborted) {
           // 错误时也尽量保存已生成内容
-          if (assistantContent || assistantThinking) {
+          if (assistantContent || assistantThinking || lastForm) {
             await prisma.message.create({
               data: {
                 sessionId,
@@ -283,6 +289,7 @@ export function registerChatRoutes(app: FastifyInstance): void {
                 content: assistantContent.replace(/【表单】[\s\S]*?【表单结束】/g, "").trim() || "(生成中断)",
                 thinking: assistantThinking || null,
                 timeline: assistantTimeline as never,
+                form: lastForm as never,
               },
             });
           }

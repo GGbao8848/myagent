@@ -38,8 +38,23 @@ export interface FormDto {
   id: string; // 表单标识（提交时回传），如 "report"
   title: string;
   description?: string;
-  fields: FormField[];
   submitLabel?: string;
+  // 表格模式（横向表头 + 多行 + 列联动），与 fields 二选一
+  columns?: FormColumn[];
+  rows?: Array<Record<string, string>>;
+  addRowLabel?: string;
+  // 垂直字段模式（兼容）
+  fields?: FormField[];
+}
+
+/** 表格模式的一列（表头横向），支持父列联动（如 工作类别 → 项目 → 任务） */
+export interface FormColumn {
+  key: string;
+  label: string;
+  type: "text" | "number" | "select";
+  options?: FormFieldOption[]; // 静态选项（无联动时）
+  dependsOn?: string[]; // 联动父列 key；options 的 key = 非空父列值用 "|" 拼接（如 "项目工时|PID-A"）
+  optionsBy?: Record<string, FormFieldOption[]>; // 拼接 key → 本列选项
 }
 
 // ── SSE 事件（POST /api/sessions/:id/chat 响应流）──
@@ -67,6 +82,7 @@ export interface MessageDto {
   content: string;
   thinking?: string | null;
   timeline?: TimelineEntry[] | null;
+  form?: FormDto | null; // 表单卡片（assistant 消息附带，刷新后重新渲染）
   createdAt: string;
 }
 

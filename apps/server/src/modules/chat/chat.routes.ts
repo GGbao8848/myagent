@@ -8,9 +8,9 @@ import { loadConfig } from "../../config.js";
 import { getActiveProvider } from "../llm/llm.service.js";
 import { decryptKey } from "../llm/llm.crypto.js";
 import { buildSkillPromptAsync } from "../skills/skills.service.js";
-import { getProfilePrompt, extractObservationsAsync } from "../profile/profile.service.js";
+import { getProfilePrompt, extractObservationsAsync, strengthenCredentialMemory } from "../profile/profile.service.js";
 import type { TimelineEntry } from "../../agent/runner.js";
-import type { FormColumn, FormDto } from "@br-agent/shared";
+import type { FormColumn, FormDto, FormFieldOption } from "@br-agent/shared";
 
 // 进行中的生成（用于停止）
 const inFlight = new Map<string, AbortController>();
@@ -36,37 +36,49 @@ export function extractFormFromScript(content: string): FormDto | null {
     const data = JSON.parse(m[1].trim()) as {
       date?: string;
       hours?: string;
+      rows?: Array<{ date?: string; hours?: string; std_hours?: string; ovt_hours?: string }>;
       workTypes?: string[];
       commonTasks?: Record<string, Array<{ label: string; value: string }>>;
       recentProjects?: Array<{ label: string; value: string }>;
+      projectTasks?: Record<string, Array<{ label: string; value: string }>>;
       recent?: { work_type?: string; phase_id?: string; phase_label?: string; content?: string; std_hours?: string; ovt_hours?: string };
     };
     const workTypeOptions = (data.workTypes ?? ["部门工作", "项目工时", "销售支持"]).map((w) => ({ label: w, value: w }));
     const recent = data.recent ?? {};
+    // 任务/阶段选项：工作类别 → 常用任务（部门工作）；项目工时/销售支持 → 历史项目下阶段（键 "work_type|project_id"）
+    const optionsBy: Record<string, FormFieldOption[]> = {};
+    for (const [wt, tasks] of Object.entries(data.commonTasks ?? {})) {
+      optionsBy[wt] = tasks;
+    }
+    for (const [pid, tasks] of Object.entries(data.projectTasks ?? {})) {
+      optionsBy[`项目工时|${pid}`] = tasks;
+      optionsBy[`销售支持|${pid}`] = tasks;
+    }
     const columns: FormColumn[] = [
       { key: "date", label: "报工日期", type: "text" },
       { key: "work_type", label: "工作类别", type: "select", options: workTypeOptions },
       { key: "project_id", label: "项目", type: "select", options: data.recentProjects ?? [] },
-      { key: "phase_id", label: "任务/阶段", type: "select", dependsOn: ["work_type"], optionsBy: data.commonTasks ?? {} },
+      { key: "phase_id", label: "任务/阶段", type: "select", dependsOn: ["work_type", "project_id"], optionsBy },
       { key: "content", label: "报工内容", type: "text" },
       { key: "std_hours", label: "标准工时", type: "number" },
       { key: "ovt_hours", label: "加班工时", type: "number" },
     ];
-    const rows: Array<Record<string, string>> = [
-      {
-        date: data.date ?? "",
-        work_type: recent.work_type ?? "部门工作",
-        project_id: "",
-        phase_id: recent.phase_id ?? "",
-        content: recent.content ?? "",
-        std_hours: recent.std_hours ?? data.hours ?? "8",
-        ovt_hours: recent.ovt_hours ?? "0",
-      },
-    ];
+    // 多天待报工：优先 data.rows（每行一个日期）；兼容旧单行 date/hours 格式
+    const srcRows: Array<{ date?: string; hours?: string; std_hours?: string; ovt_hours?: string }> =
+      data.rows && data.rows.length ? data.rows : [{ date: data.date ?? "", hours: data.hours ?? "" }];
+    const rows: Array<Record<string, string>> = srcRows.map((r) => ({
+      date: r.date ?? "",
+      work_type: recent.work_type ?? "部门工作",
+      project_id: "",
+      phase_id: recent.phase_id ?? "",
+      content: recent.content ?? "",
+      std_hours: r.std_hours ?? r.hours ?? recent.std_hours ?? "8",
+      ovt_hours: r.ovt_hours ?? recent.ovt_hours ?? "0",
+    }));
     return {
       id: "report",
       title: "报工单",
-      description: "已按最近报工模式预填，请核对修改后确认提交（可按天拆分多行明细；项目/任务可输入名称）。",
+      description: "已按最近报工模式预填，请核对后确认提交（报工内容留空将自动填「日常工作」；同一日期可拆分多行明细）。",
       submitLabel: "确认提交",
       addRowLabel: "+ 拆分（同日多明细）",
       columns,
@@ -147,6 +159,7 @@ export function registerChatRoutes(app: FastifyInstance): void {
       ]);
       const systemPrompt =
         "你是一个简洁的企业级 AI 助手，用中文回答。需要时使用提供的工具。" +
+        "调用脚本/工具时，凡是需要传入密码、密钥、账号口令等参数，必须使用真实值原文，严禁用星号（*）等掩码代替——掩码会导致后端认证失败。" +
         skillPromptResult.prompt +
         profilePrompt;
 
@@ -166,6 +179,8 @@ export function registerChatRoutes(app: FastifyInstance): void {
       let pendingFormArgs: string[] | null = null;
       // 本轮回合提取到的表单（持久化到 assistant 消息，刷新后重新渲染）
       let lastForm: FormDto | null = null;
+      // run_script 凭据（-u/-p）：工具成功调用后强化记忆，避免多轮对话遗忘凭据
+      let lastRunScriptCreds: { username?: string; password?: string } | null = null;
 
       try {
         // 注入完整工具集：内置沙箱工具 + 用户启用 MCP 工具（ToolManager 统一注册）
@@ -237,8 +252,21 @@ export function registerChatRoutes(app: FastifyInstance): void {
             if (evt.event === "tool_call" && evt.tool_name === "run_script") {
               const args = (evt.args as { args?: string[] } | undefined)?.args ?? [];
               pendingFormArgs = args.includes("--form-data") ? args : null;
+              // 缓存 -u/-p 凭据：工具成功调用后强化记忆（多轮对话持续可用）
+              const uIdx = args.indexOf("-u");
+              const pIdx = args.indexOf("-p");
+              const creds: { username?: string; password?: string } = lastRunScriptCreds ?? {};
+              if (uIdx >= 0 && args[uIdx + 1]) creds.username = args[uIdx + 1];
+              if (pIdx >= 0 && args[pIdx + 1] && args[pIdx + 1] !== "******") creds.password = args[pIdx + 1];
+              lastRunScriptCreds = creds.username || creds.password ? creds : null;
               reply.raw.write(sseFrame(evt));
               return;
+            }
+            // agent 成功调用 run_script：用到的凭据已验证可用，强化对应记忆（提升 confidence + 刷新活跃度）
+            if (evt.event === "tool_result" && evt.tool_name === "run_script" && !evt.is_error && lastRunScriptCreds) {
+              const creds = lastRunScriptCreds;
+              lastRunScriptCreds = null;
+              strengthenCredentialMemory(user.username, creds.username ?? "", creds.password ?? "").catch(() => {});
             }
             if (evt.event === "tool_result" && evt.tool_name === "run_script" && pendingFormArgs && !evt.is_error) {
               const form = extractFormFromScript(evt.content);

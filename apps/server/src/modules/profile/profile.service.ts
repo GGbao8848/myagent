@@ -167,6 +167,45 @@ export async function getProfilePrompt(owner: string): Promise<string> {
   return `\n\n## 用户偏好（记忆）\n根据历史对话积累的对该用户的了解，回答时尽量贴合：\n${lines}`;
 }
 
+/** agent 成功调用凭据后强化记忆：把含该账号/密码的观察提升到注入阈值以上并刷新活跃度，保证多轮对话持续可用 */
+export async function strengthenCredentialMemory(
+  owner: string,
+  username: string,
+  password: string
+): Promise<void> {
+  const markers = [username, password].filter(Boolean);
+  if (markers.length === 0) return;
+  try {
+    const rows = await prisma.profileObservation.findMany({ where: { owner, enabled: true } });
+    let hit = false;
+    for (const r of rows) {
+      if (markers.some((m) => r.content.includes(m))) {
+        const newC = Math.min(CONFIDENCE_MAX, Math.max(INJECT_MIN_CONFIDENCE + 0.15, r.confidence + 0.3));
+        await prisma.profileObservation.update({
+          where: { id: r.id },
+          data: { confidence: newC, lastSeenAt: new Date(), seenCount: r.seenCount + 1 },
+        });
+        hit = true;
+      }
+    }
+    // 无匹配观察：agent 已验证凭据可用，直接落一条高置信度记忆
+    if (!hit && username && password) {
+      await prisma.profileObservation
+        .create({
+          data: {
+            owner,
+            content: `用户BIP账号${username}，密码${password}`,
+            confidence: 0.9,
+            source: "auto",
+          },
+        })
+        .catch(() => {});
+    }
+  } catch {
+    // 强化失败静默，不影响对话主流程
+  }
+}
+
 /**
  * 对话后异步提取用户偏好观察。
  * 用用户默认 provider 非流式调用 LLM，从最近对话提取观察，写入 DB。

@@ -990,26 +990,77 @@ function FormTable({
   );
   const [errors, setErrors] = useState<Record<string, string>>({});
 
+  // 工时拆分组：同 date + work_type + project_id 的行视为一组（拆分产物）；不含 phase_id，允许拆分后改任务仍合并/守恒
+  const groupKey = (r: Record<string, string>) =>
+    `${r.date ?? ""}|${r.work_type ?? ""}|${r.project_id ?? ""}`;
+  const num = (v?: string): number => {
+    const n = parseFloat(v ?? "");
+    return Number.isFinite(n) ? n : 0;
+  };
+  const fmt = (n: number): string => String(Math.round(n * 100) / 100);
+
   const setCell = (ri: number, key: string, v: string) => {
-    setRows((prev) =>
-      prev.map((r, i) => {
+    setRows((prev) => {
+      const isHours = key === "std_hours" || key === "ovt_hours";
+      const src = prev[ri] ?? {};
+      // 工时列：边界 [0, 24 - 另一列]（标准+加班合计 ≤ 24h/天）；拆分组内该列总和不变、其余行均分剩余
+      if (isHours) {
+        const otherKey = key === "std_hours" ? "ovt_hours" : "std_hours";
+        const boundary = 24 - num(src[otherKey]);
+        const raw = parseFloat(v);
+        const k = groupKey(src);
+        const others = prev.map((r, i) => ({ r, i })).filter((x) => x.i !== ri && groupKey(x.r) === k);
+        if (others.length > 0) {
+          const sum = others.reduce((acc, x) => acc + num(x.r[key]), 0) + num(src[key]);
+          const newVal = Number.isFinite(raw) ? Math.max(0, Math.min(raw, boundary, sum)) : 0;
+          const per = (sum - newVal) / others.length;
+          return prev.map((r, i) => {
+            if (i === ri) {
+              const next = { ...r, [key]: String(newVal) };
+              for (const c of cols) if (c.dependsOn?.includes(key)) next[c.key] = "";
+              return next;
+            }
+            return others.some((x) => x.i === i) ? { ...r, [key]: fmt(per) } : r;
+          });
+        }
+        // 单行：clamp 到 [0, 24 - 另一列]
+        const newVal = Number.isFinite(raw) ? Math.max(0, Math.min(raw, boundary)) : 0;
+        const next = { ...src, [key]: String(newVal) };
+        return prev.map((r, i) => (i === ri ? next : r));
+      }
+      // 工作类别切换：层级联动（部门工作 → 清空项目/任务；项目类 → 默认选中最近项目，任务随项目联动）
+      if (key === "work_type") {
+        const projectOptions = cols.find((c) => c.key === "project_id")?.options ?? [];
+        return prev.map((r, i) => {
+          if (i !== ri) return r;
+          const next: Record<string, string> = { ...r, work_type: v };
+          if (v === "部门工作") {
+            next.project_id = "";
+            next.phase_id = "";
+          } else {
+            next.project_id = projectOptions[0]?.value ?? "";
+            next.phase_id = "";
+          }
+          return next;
+        });
+      }
+      // 普通设置 + 父列变化清空子列
+      return prev.map((r, i) => {
         if (i !== ri) return r;
         const next = { ...r, [key]: v };
-        // 父列变化 → 清空子列值（联动）
-        for (const c of cols) {
-          if (c.dependsOn?.includes(key)) next[c.key] = "";
-        }
+        for (const c of cols) if (c.dependsOn?.includes(key)) next[c.key] = "";
         return next;
-      })
-    );
+      });
+    });
   };
 
-  // 拆分某行：原行工时减半、新行取另一半（总和不变，如 8 → 4+4）；任务/项目相同；内容留空
+  // 拆分某行：标准工时对半（8 → 4+4），加班工时保留在原行（新行加班 0）；任务/项目相同；内容留空
   const splitRow = (ri: number) => {
     setRows((prev) => {
       const src = prev[ri] ?? {};
-      const total = parseFloat(src.std_hours ?? "0") || 0;
-      const half = total > 0 ? String(total / 2) : "";
+      const std = num(src.std_hours);
+      if (std <= 0) return prev;
+      const half = fmt(std / 2);
       const first = { ...src, std_hours: half };
       const newRow: Record<string, string> = {
         date: src.date ?? "",
@@ -1018,13 +1069,33 @@ function FormTable({
         phase_id: src.phase_id ?? "",
         content: "",
         std_hours: half,
-        ovt_hours: src.ovt_hours ?? "0",
+        ovt_hours: "0",
       };
       return [...prev.slice(0, ri), first, newRow, ...prev.slice(ri + 1)];
     });
   };
 
-  const removeRow = (ri: number) => setRows((prev) => (prev.length > 1 ? prev.filter((_, i) => i !== ri) : prev));
+  // 删除行：若存在同组行（拆分产物），被删行的标准/加班工时合并到同组第一条剩余行，保持组内总和不变
+  const removeRow = (ri: number) => {
+    setRows((prev) => {
+      if (prev.length <= 1) return prev;
+      const target = prev[ri] ?? {};
+      const k = groupKey(target);
+      const others = prev.map((r, i) => ({ r, i })).filter((x) => x.i !== ri && groupKey(x.r) === k);
+      if (others.length === 0) return prev.filter((_, i) => i !== ri);
+      const mergeTo = others[0].i;
+      return prev
+        .map((r, i) => {
+          if (i !== mergeTo) return r;
+          return {
+            ...r,
+            std_hours: fmt(num(r.std_hours) + num(target.std_hours)),
+            ovt_hours: fmt(num(r.ovt_hours) + num(target.ovt_hours)),
+          };
+        })
+        .filter((_, i) => i !== ri);
+    });
+  };
 
   const resolveOptions = (col: FormColumn, row: Record<string, string>): FormFieldOption[] => {
     if (col.options) return col.options;
@@ -1039,11 +1110,12 @@ function FormTable({
     const errs: Record<string, string> = {};
     rows.forEach((r, ri) => {
       if (!(r.phase_id ?? "").trim()) errs[`${ri}.phase_id`] = "必填";
-      if (!(r.content ?? "").trim()) errs[`${ri}.content`] = "必填";
     });
     setErrors(errs);
     if (Object.keys(errs).length > 0) return;
-    onSubmit(rows);
+    // 报工内容留空自动填「日常工作」
+    const payload = rows.map((r) => ({ ...r, content: (r.content ?? "").trim() || "日常工作" }));
+    onSubmit(payload);
   };
 
   return (
@@ -1072,6 +1144,24 @@ function FormTable({
             {rows.map((row, ri) => (
               <tr key={ri}>
                 {cols.map((col) => {
+                  // 日期列：只读 + 同日期多行合并单元格（拆分产物只显示首行日期）
+                  if (col.key === "date") {
+                    const prevDate = ri > 0 ? rows[ri - 1].date : undefined;
+                    const isDateStart = row.date !== prevDate;
+                    if (!isDateStart) return null;
+                    let dateSpan = 1;
+                    for (let j = ri + 1; j < rows.length && rows[j].date === row.date; j++) dateSpan++;
+                    return (
+                      <td key={col.key} rowSpan={dateSpan} className="border border-gray-200 px-1 py-1 align-middle">
+                        <input
+                          type="text"
+                          value={row.date ?? ""}
+                          readOnly
+                          className="w-28 bg-transparent border-0 px-2 py-1.5 text-sm text-gray-700 focus:outline-none cursor-default"
+                        />
+                      </td>
+                    );
+                  }
                   // 项目列：部门工作时占位隐藏（仅项目类显示）
                   const hideProject = col.key === "project_id" && (row.work_type ?? "") === "部门工作";
                   return (
@@ -1085,17 +1175,19 @@ function FormTable({
                           onChange={(v) => setCell(ri, col.key, v)}
                           placeholder={col.label}
                           disabled={disabled}
-                          allowCustom={col.key === "project_id" || col.key === "phase_id"}
                         />
                       ) : (
                         <input
                           type={col.type === "number" ? "number" : "text"}
                           value={row[col.key] ?? ""}
                           onChange={(e) => setCell(ri, col.key, e.target.value)}
-                          placeholder={col.key === "date" ? "YYYY-MM-DD" : col.label}
+                          placeholder={col.key === "content" ? "留空将自动填「日常工作」" : col.label}
+                          min={col.type === "number" ? 0 : undefined}
+                          max={col.type === "number" ? 24 : undefined}
+                          step={col.type === "number" ? "any" : undefined}
                           disabled={disabled}
                           className={`${
-                            col.key === "date" ? "w-28" : col.key === "std_hours" || col.key === "ovt_hours" ? "w-14" : "w-full"
+                            col.key === "std_hours" || col.key === "ovt_hours" ? "w-14" : "w-full"
                           } border border-gray-300 rounded px-2 py-1.5 text-sm disabled:bg-gray-50 focus:outline-none focus:border-blue-400`}
                         />
                       )}

@@ -153,6 +153,67 @@ const runPythonTool = tool(
   }
 );
 
+// 安装 Python 包到共享 .venv：技能脚本 import 缺失时由 agent 调用（报错驱动自动补装）
+// 用 uv pip install（`uv pip` 需指定 --python 指向 venv），不改动系统 Python
+async function runPip(packages: string[]): Promise<string> {
+  try {
+    const uv = config.uvPath;
+    const python = resolvePython();
+    const env = { ...process.env };
+    if (uv && existsSync(uv)) {
+      const args = ["pip", "install", "--python", python, ...packages];
+      return await spawnCollect(uv, args, env);
+    }
+    // 无 uv：回退 python -m pip install（仍需 venv 内 pip 可用）
+    const args = ["-m", "pip", "install", ...packages];
+    return await spawnCollect(python, args, env);
+  } catch (e) {
+    return JSON.stringify({ error: (e as Error).message });
+  }
+}
+
+// 通用：spawn 收集 stdout/stderr/exitCode（含超时保护）
+async function spawnCollect(command: string, args: string[], env: NodeJS.ProcessEnv): Promise<string> {
+  return new Promise<string>((resolvePromise) => {
+    const proc = spawn(command, args, { env, shell: false, windowsHide: true });
+    let stdout = "";
+    let stderr = "";
+    let finished = false;
+    const finish = (result: string) => {
+      if (!finished) {
+        finished = true;
+        resolvePromise(result);
+      }
+    };
+    const timer = setTimeout(() => {
+      proc.kill();
+      finish(JSON.stringify({ error: `命令超时（120s）`, stdout, stderr }));
+    }, 120_000);
+    proc.stdout.on("data", (d) => (stdout += d.toString()));
+    proc.stderr.on("data", (d) => (stderr += d.toString()));
+    proc.on("close", (code) => {
+      clearTimeout(timer);
+      finish(JSON.stringify({ exitCode: code, stdout, stderr }));
+    });
+    proc.on("error", (e) => {
+      clearTimeout(timer);
+      finish(JSON.stringify({ error: e.message }));
+    });
+  });
+}
+
+const runPipTool = tool(
+  async ({ packages }: { packages: string[] }) => runPip(packages),
+  {
+    name: "run_pip",
+    description:
+      "安装 Python 包到共享虚拟环境（.venv）。当运行技能脚本报 ModuleNotFoundError（缺少某个 Python 库）时使用，安装后重试原脚本。返回 JSON {exitCode, stdout, stderr}。",
+    schema: z.object({
+      packages: z.array(z.string()).min(1).describe("要安装的 pip 包名列表，如 [\"requests\"]"),
+    }),
+  }
+);
+
 export function createBuiltinTools() {
-  return [runScript, runPythonTool];
+  return [runScript, runPythonTool, runPipTool];
 }

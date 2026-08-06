@@ -15,6 +15,7 @@ export interface AppConfig {
   dataDir: string;
   maxConcurrentGenerations: number; // 全局对话并发上限
   pythonPath: string; // 共享 Python 解释器（skill/脚本执行用），默认项目 .venv
+  uvPath: string; // uv 可执行文件（run_pip 装依赖用），默认 ~/.local/bin/uv
 }
 
 export function loadConfig(): AppConfig {
@@ -29,5 +30,6 @@ export function loadConfig(): AppConfig {
     dataDir: process.env.DATA_DIR ?? "data",
     maxConcurrentGenerations: Number(process.env.MAX_CONCURRENT_GENERATIONS ?? 700),
     pythonPath: process.env.PYTHON_PATH ?? join(here, "..", ".venv", "Scripts", "python.exe"),
+    uvPath: process.env.UV_PATH ?? join(process.env.USERPROFILE ?? "", ".local", "bin", "uv.exe"),
   };
 }

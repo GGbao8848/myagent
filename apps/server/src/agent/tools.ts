@@ -9,6 +9,13 @@ import { checkPythonSafety, monitorMemory } from "./sandbox.js";
 
 const config = loadConfig();
 
+// 解析共享 Python 解释器：优先配置的固定路径（默认项目 .venv），不存在则回退 PATH 的 python
+function resolvePython(): string {
+  const fixed = config.pythonPath;
+  if (fixed && existsSync(fixed)) return fixed;
+  return "python";
+}
+
 // 限定在 data 目录内解析路径，防路径穿越
 function safeResolve(cwd: string, script: string): string {
   const dataRoot = resolve(config.dataDir);
@@ -27,7 +34,7 @@ async function runPython(
   opts: { timeout: number; maxMemoryMb: number }
 ): Promise<string> {
   return new Promise<string>((resolvePromise) => {
-    const proc = spawn("python", pythonArgs, {
+    const proc = spawn(resolvePython(), pythonArgs, {
       cwd,
       env: { ...process.env },
       shell: false,

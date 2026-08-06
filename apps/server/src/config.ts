@@ -1,4 +1,9 @@
 // 环境配置加载
+import { join, dirname } from "node:path";
+import { fileURLToPath } from "node:url";
+
+const here = dirname(fileURLToPath(import.meta.url));
+
 export interface AppConfig {
   openaiApiKey: string;
   openaiBaseUrl: string;
@@ -9,6 +14,7 @@ export interface AppConfig {
   port: number;
   dataDir: string;
   maxConcurrentGenerations: number; // 全局对话并发上限
+  pythonPath: string; // 共享 Python 解释器（skill/脚本执行用），默认项目 .venv
 }
 
 export function loadConfig(): AppConfig {
@@ -22,5 +28,6 @@ export function loadConfig(): AppConfig {
     port: Number(process.env.PORT ?? 9004),
     dataDir: process.env.DATA_DIR ?? "data",
     maxConcurrentGenerations: Number(process.env.MAX_CONCURRENT_GENERATIONS ?? 700),
+    pythonPath: process.env.PYTHON_PATH ?? join(here, "..", ".venv", "Scripts", "python.exe"),
   };
 }

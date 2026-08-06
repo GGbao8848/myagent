@@ -186,7 +186,8 @@ export async function runAgent(opts: RunAgentOptions): Promise<RunAgentResult> {
         const t = tools.find((x) => x.name === name);
         if (!t) throw new Error(`工具不存在：${name}，可用工具：[${tools.map((x) => x.name).join(", ")}]`);
         const output = await t.invoke({ ...tc, type: "tool_call" } as never);
-        outputText = typeof output === "string" ? output : JSON.stringify(output ?? null);
+        // t.invoke 在带 tool_call_id 时会把字符串输出包装成 ToolMessage；解包取真实工具输出
+        outputText = ToolMessage.isInstance(output) ? String(output.content) : typeof output === "string" ? output : JSON.stringify(output ?? null);
       } catch (e) {
         outputText = (e as Error).message;
         isError = true;

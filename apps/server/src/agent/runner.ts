@@ -1,10 +1,16 @@
-// Agent 运行器：把 langchain v3 投影流转换为 SSE 事件
-// 思考/正文规则（用户确认）：所有 AI 文本当"思考"，只有最后一次工具调用之后的文本作为"正文"。
-// 流式实现：model 开启 streaming 后 msg.text 逐 chunk 到达，本文件逐 chunk 增量 emit，
-//           前端据此实现打字机效果。用 </think> 分隔思考/正文，标签本身不展示。
+// Agent 运行器：手动 ReAct 循环（替代 langchain createAgent + streamEvents v3）
+// 背景：createAgent 的 streamEvents v3 投影在部分 OpenAI 兼容 provider（如 tokenrhythm 中转站）
+//       上会把 tool_call 的 id/name 解析成空串 —— 中转站按规范把后续增量 chunk 的 id/name
+//       发成空串 ""，compat 累积逻辑 `if (toolChunk.id != null)` 用空串覆盖了首个 chunk 的
+//       完整值，导致多轮请求里 assistant tool_calls / tool 消息的 tool_call_id 为空 → 400。
+//       内网 qwen 后续 chunk 省略字段/null，所以不触发。
+// 重构方案：用 model.bindTools().stream() 逐 chunk 手动 concat 聚合（concat 的 _mergeDicts
+//       用 `if(value)` 判断，空串不覆盖 → id/name 保留），自己构造多轮消息、解析 tool_calls，
+//       对 qwen / 中转站 / 官网 行为一致，彻底绕开 v3 投影 bug。
 import type { BaseChatModel } from "@langchain/core/language_models/chat_models";
 import type { StructuredToolInterface } from "@langchain/core/tools";
-import { createAgent } from "./factory.js";
+import { AIMessage, AIMessageChunk, ToolMessage } from "@langchain/core/messages";
+import type { BaseMessage } from "@langchain/core/messages";
 
 export type AgentEvent =
   | { event: "thinking"; content: string }
@@ -49,162 +55,137 @@ export function splitThink(text: string): { thinking: string; content: string } 
   return { thinking: "", content: text };
 }
 
+/** 工具调用 id 兜底：极少数 provider 首个 chunk 也无 id 时生成占位，避免 tool 消息 tool_call_id 为空 */
+function ensureCallId(id: string | undefined): string {
+  if (id && id.trim()) return id;
+  return `call_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 10)}`;
+}
+
 export async function runAgent(opts: RunAgentOptions): Promise<RunAgentResult> {
-  const agent = createAgent({
-    model: opts.model,
-    tools: opts.tools,
-    systemPrompt: opts.systemPrompt,
-  });
+  const model = opts.model;
+  if (!model) throw new Error("runAgent: 缺少 model");
+  const tools = opts.tools ?? [];
+  const maxIterations = opts.recursionLimit ?? 30;
+  // bindTools 只绑定工具 schema，可跨轮复用（ChatOpenAI 等模型必有此方法）
+  const bindFn = (model as unknown as { bindTools?: (t: StructuredToolInterface[]) => unknown }).bindTools;
+  if (typeof bindFn !== "function") throw new Error("runAgent: 模型不支持 bindTools");
+  const bound = (await bindFn.call(model, tools)) as { stream: (m: never, c?: never) => AsyncIterable<AIMessageChunk> };
 
   const timeline: TimelineEntry[] = [];
-  let thinkingOut = ""; // 累计思考（用于返回/存储）
-  let contentOut = ""; // 最终正文
-  let currentThinking = ""; // 当前思考段（未闭合，工具调用时闭合入 timeline）
-
+  let thinkingOut = "";
+  let contentOut = "";
+  let currentThinking = "";
   const emit = async (evt: AgentEvent) => {
     await opts.onEvent(evt);
   };
 
-  try {
-    const run = await agent.streamEvents(
-      { messages: opts.messages as never },
-      { version: "v3", signal: opts.signal, recursionLimit: opts.recursionLimit ?? 30 } as never
-    );
+  const messages: (BaseMessage | { role: string; content: string })[] = [
+    { role: "system", content: opts.systemPrompt },
+    ...opts.messages.map((m) => ({ role: m.role, content: m.content })),
+  ];
 
-    // 阶段一：交错推进 messages 与 toolCalls 两个投影流，实现"思考→工具→正文"实时弹出。
-    // run.messages 每条消息先增量 emit 文本（思考/正文）；run.toolCalls 在工具一执行完
-    // 就 yield（诊断证实），交错消费让工具块在工具执行完立即出现，而非攒到最后。
-    const msgIter = (run.messages as AsyncIterable<unknown>)[Symbol.asyncIterator]();
-    const tcIter = (run.toolCalls as AsyncIterable<{
-      name: string;
-      callId: string;
-      input: unknown;
-      output: Promise<unknown> | unknown;
-    }>)[Symbol.asyncIterator]();
+  for (let iter = 0; iter < maxIterations; iter++) {
+    if (opts.signal?.aborted) break;
 
-    let msgDone = false;
-    let tcDone = false;
-    let msgNext: Promise<IteratorResult<unknown>> | null = null;
-    let tcNext: Promise<
-      IteratorResult<{ name: string; callId: string; input: unknown; output: Promise<unknown> | unknown }>
-    > | null = null;
+    // 调用模型并逐 chunk 流式聚合（打字机效果 + id/name 保留）
+    const stream = await bound.stream(messages as never, { signal: opts.signal } as never);
+    let acc: AIMessageChunk | null = null;
+    let reasoningSeen = false; // 出现过 reasoning_content（deepseek 类：text 即正文）
+    // qwen <think> 跨 chunk 切分状态
+    let buf = "";
+    let thinkSeen = false;
+    let boundary = -1;
 
-    const emitText = async (msg: unknown) => {
-      if (opts.signal?.aborted) return;
-      const m = msg as {
-        toolCalls?: AsyncIterable<unknown>;
-        reasoning?: AsyncIterable<string>;
-        text: AsyncIterable<string>;
-      };
-      // 探测本消息是否携带工具调用（可重复迭代）
-      let hasTool = false;
-      try {
-        if (m.toolCalls) {
-          for await (const _tc of m.toolCalls) {
-            hasTool = true;
-            break;
-          }
-        }
-      } catch {
-        /* 忽略 */
-      }
+    for await (const chunk of stream) {
+      if (opts.signal?.aborted) break;
+      const c = chunk as AIMessageChunk & { additional_kwargs?: { reasoning_content?: string } };
+      acc = acc ? acc.concat(c) : c;
 
-      // deepseek 等模型：思考在 reasoning 投影里（无 <think> 标签），text 是纯正文
-      // qwen：无 reasoning，text 含 <think>...</think>，按 boundary 划分
-      let reasoningConsumed = false;
-      try {
-        if (m.reasoning) {
-          for await (const chunk of m.reasoning) {
-            if (opts.signal?.aborted) break;
-            if (!chunk) continue;
-            reasoningConsumed = true;
-            // 工具轮次：思考归 thinking；否则也归 thinking（reasoning 就是思考）
-            const cleaned = chunk.replace(/<\/?think>/g, "");
-            if (cleaned) {
-              thinkingOut += cleaned;
-              currentThinking += cleaned;
-              await emit({ event: "thinking", content: cleaned });
-            }
-          }
-        }
-      } catch {
-        /* 忽略 */
-      }
-
-      let buf = "";
-      let thinkSeen = false; // text 中是否出现过 <think 标签（决定是否按 qwen 切分）
-      let boundary = -1; // buf 中 "</think>" 结束位置；-1 = 尚未出现
-      for await (const chunk of m.text) {
-        if (opts.signal?.aborted) break;
-        if (!chunk) continue;
-        buf += chunk;
-        if (!thinkSeen && buf.includes("<think")) thinkSeen = true;
-        if (boundary < 0) {
-          const idx = buf.indexOf("</think>");
-          if (idx >= 0) boundary = idx + "</think>".length;
-        }
-        const chunkStart = buf.length - chunk.length;
-
-        let thinkPart = "";
-        let contentPart = "";
-        if (hasTool) {
-          // 工具轮次：模型文本全当思考（该轮不产生正文）
-          thinkPart = chunk;
-        } else if (reasoningConsumed) {
-          // deepseek：思考已在 reasoning 投影消费，text 全当正文
-          contentPart = chunk;
-        } else if (!thinkSeen) {
-          // 模型不用 <think> 标签（如中转 deepseek/OpenAI 兼容）：text 就是正文
-          contentPart = chunk;
-        } else if (boundary < 0) {
-          // qwen：已见 <think> 但 </think> 未闭合 → 思考段
-          thinkPart = chunk;
-        } else if (chunkStart >= boundary) {
-          // qwen：已闭合，此段在边界后 → 正文
-          contentPart = chunk;
-        } else {
-          // qwen chunk 跨越 </think> 边界：前半思考、后半正文（去掉正文前导空白）
-          thinkPart = chunk.slice(0, boundary - chunkStart);
-          contentPart = chunk.slice(boundary - chunkStart).replace(/^\s+/, "");
-        }
-
-        if (thinkPart) {
-          const cleaned = thinkPart.replace(/<\/?think>/g, "");
-          if (cleaned) {
-            thinkingOut += cleaned;
-            currentThinking += cleaned;
-            await emit({ event: "thinking", content: cleaned });
-          }
-        }
-        if (contentPart) {
-          contentOut += contentPart;
-          await emit({ event: "content", content: contentPart });
+      // deepseek/中转站：思考在 reasoning_content，逐 chunk emit
+      const rc = c.additional_kwargs?.reasoning_content;
+      if (typeof rc === "string" && rc.trim()) {
+        reasoningSeen = true;
+        const cleaned = rc.replace(/<\/?think>/g, "");
+        if (cleaned) {
+          thinkingOut += cleaned;
+          currentThinking += cleaned;
+          await emit({ event: "thinking", content: cleaned });
         }
       }
-    };
 
-    const emitTool = async (tc: {
-      name: string;
-      callId: string;
-      input: unknown;
-      output: Promise<unknown> | unknown;
-    }) => {
-      if (opts.signal?.aborted) return;
-      // 闭合当前思考段：工具调用前已产生的思考入 timeline，与工具交叉展示
+      // 正文/思考：qwen 用 <think> 标签，deepseek 无标签 text 即正文
+      const ct = typeof c.content === "string" ? c.content : "";
+      if (!ct) continue;
+      buf += ct;
+      if (!thinkSeen && buf.includes("<think")) thinkSeen = true;
+      if (boundary < 0) {
+        const idx = buf.indexOf("</think>");
+        if (idx >= 0) boundary = idx + "</think>".length;
+      }
+      const chunkStart = buf.length - ct.length;
+
+      let thinkPart = "";
+      let contentPart = "";
+      if (reasoningSeen) {
+        contentPart = ct;
+      } else if (!thinkSeen) {
+        contentPart = ct;
+      } else if (boundary < 0) {
+        thinkPart = ct;
+      } else if (chunkStart >= boundary) {
+        contentPart = ct;
+      } else {
+        thinkPart = ct.slice(0, boundary - chunkStart);
+        contentPart = ct.slice(boundary - chunkStart).replace(/^\s+/, "");
+      }
+
+      if (thinkPart) {
+        const cleaned = thinkPart.replace(/<\/?think>/g, "");
+        if (cleaned) {
+          thinkingOut += cleaned;
+          currentThinking += cleaned;
+          await emit({ event: "thinking", content: cleaned });
+        }
+      }
+      if (contentPart) {
+        contentOut += contentPart;
+        await emit({ event: "content", content: contentPart });
+      }
+    }
+
+    if (opts.signal?.aborted) break;
+    if (!acc) throw new Error("模型无响应");
+
+    const toolCalls = acc.tool_calls ?? [];
+    if (toolCalls.length === 0) {
+      // 最终轮：无工具调用，闭合思考段
       if (currentThinking.trim()) {
         timeline.push({ type: "thinking", content: currentThinking.trim() });
         currentThinking = "";
       }
-      const name = tc.name;
-      const input = (tc.input ?? {}) as Record<string, unknown>;
+      break;
+    }
 
-      await emit({ event: "tool_call", tool_name: name, args: input, id: tc.callId });
-      timeline.push({ type: "tool_call", name, args: input, id: tc.callId });
+    // 工具轮：闭合思考段，执行工具，构造下一轮消息
+    if (currentThinking.trim()) {
+      timeline.push({ type: "thinking", content: currentThinking.trim() });
+      currentThinking = "";
+    }
+    for (const tc of toolCalls) {
+      if (opts.signal?.aborted) break;
+      const name = tc.name;
+      const id = ensureCallId(tc.id);
+      const input = (tc.args ?? {}) as Record<string, unknown>;
+
+      await emit({ event: "tool_call", tool_name: name, args: input, id });
+      timeline.push({ type: "tool_call", name, args: input, id });
 
       let outputText: string;
       let isError = false;
       try {
-        const output = await tc.output;
+        const t = tools.find((x) => x.name === name);
+        if (!t) throw new Error(`工具不存在：${name}，可用工具：[${tools.map((x) => x.name).join(", ")}]`);
+        const output = await t.invoke({ ...tc, type: "tool_call" } as never);
         outputText = typeof output === "string" ? output : JSON.stringify(output ?? null);
       } catch (e) {
         outputText = (e as Error).message;
@@ -212,66 +193,23 @@ export async function runAgent(opts: RunAgentOptions): Promise<RunAgentResult> {
       }
       await emit({ event: "tool_result", tool_name: name, content: outputText, is_error: isError });
       timeline.push({ type: "tool_result", name, content: outputText, isError });
-    };
 
-    // 确保两流都有 next() 在途；未 done 且未拉取时发起
-    const start = (): void => {
-      if (!msgDone && msgNext === null) msgNext = msgIter.next();
-      if (!tcDone && tcNext === null) tcNext = tcIter.next();
-    };
-
-    start();
-    while (!msgDone || !tcDone) {
-      if (opts.signal?.aborted) break;
-      start();
-      const m = msgNext as Promise<IteratorResult<unknown>> | null;
-      const t = tcNext as Promise<
-        IteratorResult<{ name: string; callId: string; input: unknown; output: Promise<unknown> | unknown }>
-      > | null;
-      const jobs: Promise<
-        | { which: "msg"; r: IteratorResult<unknown> }
-        | {
-            which: "tc";
-            r: IteratorResult<{ name: string; callId: string; input: unknown; output: Promise<unknown> | unknown }>;
-          }
-      >[] = [];
-      if (!msgDone && m) jobs.push(m.then((r) => ({ which: "msg", r })));
-      if (!tcDone && t) jobs.push(t.then((r) => ({ which: "tc", r })));
-      const won = await Promise.race(jobs);
-      if (won.which === "msg") {
-        msgNext = null;
-        if (won.r.done) msgDone = true;
-        else await emitText(won.r.value);
-      } else {
-        tcNext = null;
-        if (won.r.done) tcDone = true;
-        else await emitTool(won.r.value);
-      }
+      // 追加 assistant(tool_calls) + tool(result) 到历史，供下一轮模型调用
+      messages.push(new AIMessage({ content: typeof acc.content === "string" ? acc.content : "", tool_calls: [{ ...tc, id }] }));
+      messages.push(new ToolMessage({ tool_call_id: id, content: outputText, name }));
     }
-
-    // 阶段三：收尾 —— 闭合最后一段思考（若还有未闭合的）
-    if (currentThinking.trim()) {
-      timeline.push({ type: "thinking", content: currentThinking.trim() });
-    }
-
-    // 收尾兜底：qwen 偶发把整段回复包在 <think> 内且未闭合，导致 content 为空。
-    // 此时把思考的最后一整段作为正文返回，避免前端出现"(无回答)"。
-    let content = contentOut;
-    if (!content.trim() && thinkingOut.trim()) {
-      const segments = thinkingOut
-        .split(/\n\n+/)
-        .map((s) => s.trim())
-        .filter(Boolean);
-      content = segments[segments.length - 1] ?? "";
-    }
-
-    return { thinking: thinkingOut, content, timeline };
-  } catch (e) {
-    if (opts.signal?.aborted) {
-      return { thinking: thinkingOut, content: contentOut, timeline };
-    }
-    const message = (e as Error).message;
-    await emit({ event: "error", content: message });
-    throw e;
+    if (opts.signal?.aborted) break;
   }
+
+  // 收尾兜底：qwen 偶发把整段回复包在 <think> 内且未闭合，content 为空时取思考最后一段
+  let content = contentOut;
+  if (!content.trim() && thinkingOut.trim()) {
+    const segments = thinkingOut
+      .split(/\n\n+/)
+      .map((s) => s.trim())
+      .filter(Boolean);
+    content = segments[segments.length - 1] ?? "";
+  }
+
+  return { thinking: thinkingOut, content, timeline };
 }

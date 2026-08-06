@@ -9,6 +9,7 @@ interface LocalMessage {
   id: string; // 本地临时 id 或服务端 id
   role: "user" | "assistant";
   content: string;
+  createdAt?: string; // ISO 时间戳（历史消息来自服务端，本地新增为空）
   thinking?: string;
   timeline?: TimelineEntry[];
   streaming?: boolean;
@@ -50,6 +51,18 @@ function appendSegment(flow: FlowState, seg: TimelineEntry): void {
   } else {
     flow.timeline.push(seg);
   }
+}
+
+/** 格式化消息时间戳：当天显示 HH:mm，跨天显示 MM-DD HH:mm（用本地时区，避免 UTC 偏移 8 小时） */
+function formatMsgTime(iso?: string): string {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  const now = new Date();
+  const pad = (n: number) => String(n).padStart(2, "0");
+  const hm = `${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  const sameDay = d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth() && d.getDate() === now.getDate();
+  return sameDay ? hm : `${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${hm}`;
 }
 
 interface Props {
@@ -100,6 +113,7 @@ export default function DialogueView({ activeSessionId, onSelectSession }: Props
           id: String(m.id),
           role: m.role,
           content: m.content,
+          createdAt: m.createdAt,
           thinking: m.thinking ?? undefined,
           timeline: m.timeline ?? undefined,
           form: m.form ?? undefined,
@@ -263,7 +277,7 @@ export default function DialogueView({ activeSessionId, onSelectSession }: Props
       }));
     };
 
-    const finish = (messageId?: string | number) => {
+    const finish = (messageId?: string | number, createdAt?: string) => {
       flowsRef.current.delete(sessionId);
       controllersRef.current.delete(sessionId);
       setStateFor(sessionId, (s) => ({
@@ -271,7 +285,9 @@ export default function DialogueView({ activeSessionId, onSelectSession }: Props
         messages: s.messages.map((m) => {
           if (m.id !== flow.id) return m;
           const finalId = messageId != null ? String(messageId) : flow.id;
-          return { ...m, id: finalId, content: flow.content, thinking: flow.thinking, timeline: flow.timeline, error: flow.error, streaming: false };
+          // 优先用服务端补发的准确时间戳，兜底本地时间
+          const ts = createdAt ?? m.createdAt ?? new Date().toISOString();
+          return { ...m, id: finalId, content: flow.content, thinking: flow.thinking, timeline: flow.timeline, error: flow.error, createdAt: ts, streaming: false };
         }),
         streaming: false,
         runningError: undefined,
@@ -309,7 +325,7 @@ export default function DialogueView({ activeSessionId, onSelectSession }: Props
         finish(); // 错误事件后流结束（无 done），结束流式状态
       },
       done: (e) => {
-        finish(e.message_id);
+        finish(e.message_id, e.created_at);
       },
     };
 
@@ -593,8 +609,13 @@ function MessageBubble({
   if (message.role === "user") {
     return (
       <div className="flex justify-end">
-        <div className="max-w-[75%] bg-blue-600 text-white rounded-xl px-4 py-2 text-sm whitespace-pre-wrap">
-          {message.content}
+        <div className="max-w-[75%]">
+          <div className="bg-blue-600 text-white rounded-xl px-4 py-2 text-sm whitespace-pre-wrap">
+            {message.content}
+          </div>
+          {message.createdAt ? (
+            <div className="text-right text-[11px] text-gray-400 mt-1">{formatMsgTime(message.createdAt)}</div>
+          ) : null}
         </div>
       </div>
     );
@@ -646,6 +667,9 @@ function MessageBubble({
           <div className="text-gray-400 text-sm bg-white border border-gray-200 rounded-xl px-4 py-3 animate-pulse">
             思考中…
           </div>
+        ) : null}
+        {message.createdAt ? (
+          <div className="text-[11px] text-gray-400">{formatMsgTime(message.createdAt)}</div>
         ) : null}
       </div>
     </div>

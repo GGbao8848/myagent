@@ -64,7 +64,7 @@ export type SSEChatEvent =
   | { event: "tool_call"; tool_name: string; args: Record<string, unknown>; id: string }
   | { event: "tool_result"; tool_name: string; content: string; is_error?: boolean }
   | { event: "form"; form: FormDto }
-  | { event: "done"; message_id: number }
+  | { event: "done"; message_id: number; created_at: string }
   | { event: "error"; content: string };
 
 // ── API DTO ──

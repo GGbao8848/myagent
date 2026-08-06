@@ -308,8 +308,8 @@ export function registerChatRoutes(app: FastifyInstance): void {
             form: lastForm as never,
           },
         });
-        // 补发 message_id
-        reply.raw.write(sseFrame({ event: "done", message_id: saved.id }));
+        // 补发 message_id + 服务端时间戳（前端据此显示准确消息时间，避免本地时区近似）
+        reply.raw.write(sseFrame({ event: "done", message_id: saved.id, created_at: saved.createdAt.toISOString() }));
         reply.raw.end();
       } catch (e) {
         const message = (e as Error).message;

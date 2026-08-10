@@ -3,6 +3,9 @@
 import { useCallback, useEffect, useState } from "react";
 import { api } from "../api";
 import { getIsAdmin } from "../auth";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import type { LlmProviderDto } from "@br-agent/shared";
 
 export default function LlmView() {
@@ -132,20 +135,14 @@ export default function LlmView() {
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 flex-wrap">
                     <span className="font-medium text-gray-800">{p.name}</span>
-                    <span className="px-1.5 py-0.5 rounded text-xs bg-gray-100 text-gray-600 font-mono">
-                      {p.model}
-                    </span>
-                    <span
-                      className={`px-1.5 py-0.5 rounded text-xs ${
-                        p.owner === "" ? "bg-green-50 text-green-600" : "bg-purple-50 text-purple-600"
-                      }`}
-                    >
+                    <Badge variant="secondary" className="font-mono">{p.model}</Badge>
+                    <Badge variant={p.owner === "" ? "secondary" : "outline"} className={p.owner === "" ? "bg-green-50 text-green-700" : "bg-purple-50 text-purple-700"}>
                       {p.owner === "" ? "公共" : "私有"}
-                    </span>
+                    </Badge>
                     {isActive ? (
-                      <span className="px-1.5 py-0.5 rounded text-xs bg-blue-50 text-blue-600">✓ 我的默认</span>
+                      <Badge className="bg-blue-50 text-blue-700">✓ 我的默认</Badge>
                     ) : isGlobalDefault ? (
-                      <span className="px-1.5 py-0.5 rounded text-xs bg-green-50 text-green-700">★ 公共默认</span>
+                      <Badge className="bg-green-50 text-green-700">★ 公共默认</Badge>
                     ) : null}
                   </div>
                   <p className="text-xs text-gray-400 mt-1 font-mono truncate">{p.baseUrl}</p>
@@ -281,12 +278,11 @@ function ProviderModal({
     "w-full px-2.5 py-1.5 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-1 focus:ring-blue-500";
 
   return (
-    <div className="fixed inset-0 bg-black/30 flex items-center justify-center z-50" onClick={onClose}>
-      <div className="bg-white rounded-lg shadow-xl w-full max-w-md p-5" onClick={(e) => e.stopPropagation()}>
-        <div className="flex items-center justify-between mb-4">
-          <h3 className="font-semibold text-gray-800">{target ? "编辑模型" : "添加模型"}</h3>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-xl leading-none">×</button>
-        </div>
+    <Dialog open onOpenChange={(open) => { if (!open) onClose(); }}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle>{target ? "编辑模型" : "添加模型"}</DialogTitle>
+        </DialogHeader>
 
         <div className="space-y-3">
           <div>
@@ -327,17 +323,13 @@ function ProviderModal({
 
         {error && <p className="mt-3 text-sm text-red-500">{error}</p>}
 
-        <div className="flex justify-end gap-2 mt-5">
-          <button onClick={onClose} className="px-4 py-2 rounded-md text-sm text-gray-600 hover:bg-gray-100">取消</button>
-          <button
-            onClick={submit}
-            disabled={saving}
-            className="px-4 py-2 bg-blue-600 text-white rounded-md text-sm hover:bg-blue-700 disabled:opacity-50"
-          >
+        <DialogFooter className="mt-4">
+          <Button variant="outline" onClick={onClose}>取消</Button>
+          <Button onClick={submit} disabled={saving}>
             {saving ? "保存中…" : "保存"}
-          </button>
-        </div>
-      </div>
-    </div>
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }

@@ -1,6 +1,8 @@
 // 记忆画像页：用户偏好观察列表 + 新增 + 置信度调整 + 启停 + 删除
 import { useCallback, useEffect, useState } from "react";
 import { api } from "../api";
+import { Badge } from "@/components/ui/badge";
+import { Switch } from "@/components/ui/switch";
 import type { ProfileObservationDto } from "@br-agent/shared";
 
 export default function MemoryView() {
@@ -94,11 +96,9 @@ export default function MemoryView() {
                 <div className="flex-1 min-w-0">
                   <p className="text-sm text-gray-800">{o.content}</p>
                   <div className="flex items-center gap-2 mt-1 flex-wrap">
-                    <span className={`px-1.5 py-0.5 rounded text-xs ${
-                      o.source === "auto" ? "bg-blue-50 text-blue-600" : "bg-green-50 text-green-600"
-                    }`}>
+                    <Badge variant={o.source === "auto" ? "secondary" : "outline"} className={o.source === "auto" ? "bg-blue-50 text-blue-700" : "bg-green-50 text-green-700"}>
                       {o.source === "auto" ? "自动提取" : "手动"}
-                    </span>
+                    </Badge>
                     <span className="text-xs text-gray-400">置信度 {o.confidence.toFixed(2)}</span>
                     <span className="text-xs text-gray-400">出现 {o.seenCount} 次</span>
                     {!o.enabled && <span className="text-xs text-gray-400">（已停用）</span>}
@@ -117,18 +117,11 @@ export default function MemoryView() {
                   >
                     +
                   </button>
-                  <button
-                    onClick={() => toggle(o)}
-                    className={`relative w-9 h-5 rounded-full transition-colors ${
-                      o.enabled ? "bg-green-500" : "bg-gray-300"
-                    }`}
-                  >
-                    <span
-                      className={`absolute top-0.5 w-4 h-4 rounded-full bg-white transition-all ${
-                        o.enabled ? "left-[18px]" : "left-0.5"
-                      }`}
-                    />
-                  </button>
+                  <Switch
+                    checked={o.enabled}
+                    onCheckedChange={() => toggle(o)}
+                    aria-label={`启用观察`}
+                  />
                   <button
                     onClick={() => del(o)}
                     className="text-xs text-gray-400 hover:text-red-500"

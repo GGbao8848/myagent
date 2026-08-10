@@ -2,6 +2,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "../api";
 import { getIsAdmin } from "../auth";
+import { Badge } from "@/components/ui/badge";
+import { Switch } from "@/components/ui/switch";
 import type { SkillDto } from "@br-agent/shared";
 
 export default function SkillsView() {
@@ -124,30 +126,19 @@ export default function SkillsView() {
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2">
                   <span className="font-medium text-gray-800">{s.name}</span>
-                  <span
-                    className={`px-1.5 py-0.5 rounded text-xs ${
-                      s.owner === "" ? "bg-green-50 text-green-600" : "bg-purple-50 text-purple-600"
-                    }`}
-                  >
+                  <Badge variant={s.owner === "" ? "secondary" : "outline"} className={s.owner === "" ? "bg-green-50 text-green-700" : "bg-purple-50 text-purple-700"}>
                     {s.owner === "" ? "公共" : "私有"}
-                  </span>
+                  </Badge>
                 </div>
                 <p className="text-sm text-gray-500 mt-1 line-clamp-2">{s.description}</p>
                 <p className="text-xs text-gray-400 mt-1">ID: {s.id}</p>
               </div>
               <div className="flex items-center gap-3 ml-4">
-                <button
-                  onClick={() => toggle(s)}
-                  className={`relative w-9 h-5 rounded-full transition-colors ${
-                    s.enabled ? "bg-green-500" : "bg-gray-300"
-                  }`}
-                >
-                  <span
-                    className={`absolute top-0.5 w-4 h-4 rounded-full bg-white transition-all ${
-                      s.enabled ? "left-[18px]" : "left-0.5"
-                    }`}
-                  />
-                </button>
+                <Switch
+                  checked={s.enabled}
+                  onCheckedChange={() => toggle(s)}
+                  aria-label={`启用 ${s.name}`}
+                />
                 {s.owner !== "" && (
                   <button
                     onClick={() => del(s)}

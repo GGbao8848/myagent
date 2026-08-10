@@ -1,14 +1,24 @@
 // 根组件：登录态判断 + 视图切换
 import { useEffect, useState } from "react";
+import { MessagesSquare, FolderKanban, Plug, Cpu, Brain, LogOut, Bot, type LucideIcon } from "lucide-react";
 import { isAuthenticated, handleCallback, login, logout, getUserName, SESSION_EXPIRED_EVENT } from "./auth";
 import DialogueView from "./views/DialogueView";
 import SkillsView from "./views/SkillsView";
 import McpView from "./views/McpView";
 import LlmView from "./views/LlmView";
 import MemoryView from "./views/MemoryView";
+import { Button } from "@/components/ui/button";
 import type { MessageDto } from "@br-agent/shared";
 
 type View = "dialogue" | "skills" | "mcp" | "llm" | "memory";
+
+const navItems: Array<{ key: View; label: string; icon: LucideIcon }> = [
+  { key: "dialogue", label: "对话", icon: MessagesSquare },
+  { key: "skills", label: "技能", icon: FolderKanban },
+  { key: "mcp", label: "连接管理", icon: Plug },
+  { key: "llm", label: "模型配置", icon: Cpu },
+  { key: "memory", label: "记忆", icon: Brain },
+];
 
 export default function App() {
   const [authed, setAuthed] = useState<boolean | null>(null);
@@ -64,12 +74,9 @@ export default function App() {
       <div className="h-full flex items-center justify-center">
         <div className="text-center space-y-4">
           <h1 className="text-xl font-semibold text-gray-800">BR-Agent</h1>
-          <button
-            onClick={() => login()}
-            className="px-5 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm"
-          >
+          <Button onClick={() => login()} size="lg">
             使用企业账号登录
-          </button>
+          </Button>
         </div>
       </div>
     );
@@ -78,60 +85,42 @@ export default function App() {
   return (
     <div className="h-full flex bg-gray-50">
       {/* 侧边栏 */}
-      <aside className="w-fit bg-white border-r border-gray-200 flex flex-col">
-        <div className="p-4 border-b border-gray-100">
-          <h1 className="text-lg font-semibold text-gray-800">BR-Agent</h1>
-          <p className="text-xs text-gray-400 mt-0.5">{getUserName()}</p>
+      <aside className="w-fit bg-white border-r border-border flex flex-col">
+        <div className="p-4 border-b border-border">
+          <h1 className="text-lg font-semibold text-foreground flex items-center gap-2">
+            <Bot className="size-5 text-primary" />
+            BR-Agent
+          </h1>
+          <p className="text-xs text-muted-foreground mt-0.5">{getUserName()}</p>
         </div>
         <nav className="flex-1 p-2 space-y-1">
-          <button
-            onClick={() => setView("dialogue")}
-            className={`block whitespace-nowrap text-left px-3 py-2 rounded-md text-sm ${
-              view === "dialogue" ? "bg-blue-50 text-blue-700" : "text-gray-700 hover:bg-gray-100"
-            }`}
-          >
-            对话
-          </button>
-          <button
-            onClick={() => setView("skills")}
-            className={`block whitespace-nowrap text-left px-3 py-2 rounded-md text-sm ${
-              view === "skills" ? "bg-blue-50 text-blue-700" : "text-gray-700 hover:bg-gray-100"
-            }`}
-          >
-            技能
-          </button>
-          <button
-            onClick={() => setView("mcp")}
-            className={`block whitespace-nowrap text-left px-3 py-2 rounded-md text-sm ${
-              view === "mcp" ? "bg-blue-50 text-blue-700" : "text-gray-700 hover:bg-gray-100"
-            }`}
-          >
-            连接管理
-          </button>
-          <button
-            onClick={() => setView("llm")}
-            className={`block whitespace-nowrap text-left px-3 py-2 rounded-md text-sm ${
-              view === "llm" ? "bg-blue-50 text-blue-700" : "text-gray-700 hover:bg-gray-100"
-            }`}
-          >
-            模型配置
-          </button>
-          <button
-            onClick={() => setView("memory")}
-            className={`block whitespace-nowrap text-left px-3 py-2 rounded-md text-sm ${
-              view === "memory" ? "bg-blue-50 text-blue-700" : "text-gray-700 hover:bg-gray-100"
-            }`}
-          >
-            记忆
-          </button>
+          {navItems.map((item) => {
+            const Icon = item.icon;
+            return (
+              <button
+                key={item.key}
+                onClick={() => setView(item.key)}
+                className={`flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm transition-colors ${
+                  view === item.key
+                    ? "bg-primary/10 text-primary font-medium"
+                    : "text-muted-foreground hover:bg-muted hover:text-foreground"
+                }`}
+              >
+                <Icon className="size-4 shrink-0" />
+                <span className="whitespace-nowrap">{item.label}</span>
+              </button>
+            );
+          })}
         </nav>
-        <div className="p-3 border-t border-gray-100">
-          <button
+        <div className="p-3 border-t border-border">
+          <Button
+            variant="ghost"
             onClick={() => logout()}
-            className="block whitespace-nowrap text-left px-3 py-2 rounded-md text-sm text-gray-500 hover:bg-gray-100"
+            className="w-full justify-start gap-2 text-muted-foreground"
           >
+            <LogOut className="size-4" />
             退出登录
-          </button>
+          </Button>
         </div>
       </aside>
 

@@ -10,6 +10,20 @@ export default defineConfig({
       "@": fileURLToPath(new URL("./src", import.meta.url)),
     },
   },
+  build: {
+    rolldownOptions: {
+      output: {
+        codeSplitting: {
+          groups: [
+            { name: "vendor-react", test: /node_modules[\\/](react|react-dom|scheduler)[\\/]/ },
+            { name: "vendor-radix", test: /node_modules[\\/](radix-ui|@radix-ui)[\\/]/ },
+            { name: "vendor-lucide", test: /node_modules[\\/]lucide-react[\\/]/ },
+            { name: "vendor-markdown", test: /node_modules[\\/](react-markdown|remark-gfm|remark-parse|remark-rehype|rehype-raw|rehype-sanitize|micromark|unified|unist-util|hast-util|mdast-util|vfile)[\\/]/ },
+          ],
+        },
+      },
+    },
+  },
   server: {
     port: 9005,
     strictPort: true,

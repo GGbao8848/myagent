@@ -3,16 +3,27 @@ import { useCallback, useEffect, useState } from "react";
 import { api } from "../api";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Brain } from "lucide-react";
+import { toast } from "sonner";
 import type { ProfileObservationDto } from "@br-agent/shared";
 
 export default function MemoryView() {
   const [observations, setObservations] = useState<ProfileObservationDto[]>([]);
   const [newContent, setNewContent] = useState("");
-  const [msg, setMsg] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
   const [adding, setAdding] = useState(false);
 
   const load = useCallback(() => {
-    api.listProfileObservations().then(setObservations).catch((e) => setMsg(e.message));
+    setLoading(true);
+    api
+      .listProfileObservations()
+      .then(setObservations)
+      .catch((e) => toast.error(e.message))
+      .finally(() => setLoading(false));
   }, []);
 
   useEffect(() => {
@@ -26,29 +37,43 @@ export default function MemoryView() {
     try {
       await api.createProfileObservation(content);
       setNewContent("");
+      toast.success("已添加观察");
       load();
     } catch (e) {
-      setMsg("添加失败：" + (e as Error).message);
+      toast.error("添加失败：" + (e as Error).message);
     } finally {
       setAdding(false);
     }
   };
 
   const toggle = async (o: ProfileObservationDto) => {
-    await api.updateProfileObservation(o.id, { enabled: !o.enabled });
-    load();
+    try {
+      await api.updateProfileObservation(o.id, { enabled: !o.enabled });
+      load();
+    } catch (e) {
+      toast.error((e as Error).message);
+    }
   };
 
   const adjustConfidence = async (o: ProfileObservationDto, delta: number) => {
     const c = Math.max(0, Math.min(1, Math.round((o.confidence + delta) * 100) / 100));
-    await api.updateProfileObservation(o.id, { confidence: c });
-    load();
+    try {
+      await api.updateProfileObservation(o.id, { confidence: c });
+      load();
+    } catch (e) {
+      toast.error((e as Error).message);
+    }
   };
 
   const del = async (o: ProfileObservationDto) => {
     if (!confirm(`确定删除该观察？\n「${o.content}」`)) return;
-    await api.deleteProfileObservation(o.id);
-    load();
+    try {
+      await api.deleteProfileObservation(o.id);
+      toast.success("已删除观察");
+      load();
+    } catch (e) {
+      toast.error((e as Error).message);
+    }
   };
 
   return (
@@ -60,77 +85,59 @@ export default function MemoryView() {
         对话中会自动提取你的偏好，也可手动添加。这些观察会注入后续对话，帮助更贴合你的习惯。
       </p>
 
-      {msg && (
-        <div className="mb-4 px-3 py-2 bg-blue-50 border border-blue-200 text-blue-700 rounded-md text-sm">
-          {msg}
-        </div>
-      )}
-
       {/* 新增观察 */}
       <div className="flex gap-2 mb-4">
-        <input
+        <Input
           value={newContent}
           onChange={(e) => setNewContent(e.target.value)}
           onKeyDown={(e) => e.key === "Enter" && add()}
           placeholder="添加偏好，如：我喜欢简洁的回复"
-          className="flex-1 px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+          className="flex-1"
         />
-        <button
-          onClick={add}
-          disabled={adding || !newContent.trim()}
-          className="px-4 py-2 bg-blue-600 text-white rounded-md text-sm hover:bg-blue-700 disabled:opacity-50"
-        >
+        <Button onClick={add} disabled={adding || !newContent.trim()}>
           {adding ? "添加中…" : "添加"}
-        </button>
+        </Button>
       </div>
 
-      {observations.length === 0 ? (
-        <div className="text-gray-400 text-sm">
+      {loading ? (
+        <div className="grid gap-3">
+          {[0, 1, 2].map((i) => <Skeleton key={i} className="h-24 rounded-xl" />)}
+        </div>
+      ) : observations.length === 0 ? (
+        <div className="flex flex-col items-center gap-2 text-muted-foreground text-sm py-10">
+          <Brain className="size-8 text-muted-foreground/50" />
           暂无观察。发消息后会自动提取你的偏好，或手动添加。
         </div>
       ) : (
         <div className="grid gap-3">
           {observations.map((o) => (
-            <div key={o.id} className={`bg-white border rounded-lg p-4 ${o.enabled ? "border-gray-200" : "border-gray-200 opacity-60"}`}>
-              <div className="flex items-start justify-between">
+            <Card key={o.id} className={`gap-3 ${o.enabled ? "" : "opacity-60"}`}>
+              <CardContent className="flex items-start justify-between gap-2">
                 <div className="flex-1 min-w-0">
                   <p className="text-sm text-gray-800">{o.content}</p>
                   <div className="flex items-center gap-2 mt-1 flex-wrap">
-                    <Badge variant={o.source === "auto" ? "secondary" : "outline"} className={o.source === "auto" ? "bg-blue-50 text-blue-700" : "bg-green-50 text-green-700"}>
+                    <Badge variant={o.source === "auto" ? "secondary" : "outline"}>
                       {o.source === "auto" ? "自动提取" : "手动"}
                     </Badge>
-                    <span className="text-xs text-gray-400">置信度 {o.confidence.toFixed(2)}</span>
-                    <span className="text-xs text-gray-400">出现 {o.seenCount} 次</span>
-                    {!o.enabled && <span className="text-xs text-gray-400">（已停用）</span>}
+                    <span className="text-xs text-muted-foreground">置信度 {o.confidence.toFixed(2)}</span>
+                    <span className="text-xs text-muted-foreground">出现 {o.seenCount} 次</span>
+                    {!o.enabled && <span className="text-xs text-muted-foreground">（已停用）</span>}
                   </div>
                 </div>
                 <div className="flex items-center gap-2 ml-4">
-                  <button
-                    onClick={() => adjustConfidence(o, -0.1)}
-                    className="w-6 h-6 rounded bg-gray-100 text-gray-600 text-sm hover:bg-gray-200"
-                  >
-                    −
-                  </button>
-                  <button
-                    onClick={() => adjustConfidence(o, 0.1)}
-                    className="w-6 h-6 rounded bg-gray-100 text-gray-600 text-sm hover:bg-gray-200"
-                  >
-                    +
-                  </button>
+                  <Button variant="ghost" size="icon-xs" onClick={() => adjustConfidence(o, -0.1)} aria-label="降低置信度">−</Button>
+                  <Button variant="ghost" size="icon-xs" onClick={() => adjustConfidence(o, 0.1)} aria-label="提高置信度">+</Button>
                   <Switch
                     checked={o.enabled}
                     onCheckedChange={() => toggle(o)}
                     aria-label={`启用观察`}
                   />
-                  <button
-                    onClick={() => del(o)}
-                    className="text-xs text-gray-400 hover:text-red-500"
-                  >
+                  <Button variant="ghost" size="sm" onClick={() => del(o)} className="text-muted-foreground hover:text-red-500">
                     删除
-                  </button>
+                  </Button>
                 </div>
-              </div>
-            </div>
+              </CardContent>
+            </Card>
           ))}
         </div>
       )}

@@ -3,6 +3,12 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { api, chatStream } from "../api";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Collapsible, CollapsibleTrigger, CollapsibleContent } from "@/components/ui/collapsible";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { MessagesSquare, Trash2 } from "lucide-react";
 import type { FormColumn, FormDto, FormFieldOption, MessageDto, SessionDto, SSEChatEvent, TimelineEntry } from "@br-agent/shared";
 
 interface LocalMessage {
@@ -380,23 +386,16 @@ export default function DialogueView({ activeSessionId, onSelectSession }: Props
       {/* 会话列表 */}
       <div className="w-56 border-r border-gray-200 bg-gray-50 flex flex-col">
         <div className="p-3 space-y-2">
-          <button
-            onClick={newSession}
-            disabled={trashMode}
-            className="w-full px-3 py-2 bg-blue-600 text-white rounded-md text-sm hover:bg-blue-700 disabled:opacity-40"
-          >
+          <Button onClick={newSession} disabled={trashMode} className="w-full">
             + 新建会话
-          </button>
-          <button
+          </Button>
+          <Button
             onClick={toggleTrashMode}
-            className={`w-full px-3 py-2 rounded-md text-sm border ${
-              trashMode
-                ? "bg-gray-800 text-white border-gray-800"
-                : "bg-white text-gray-600 border-gray-300 hover:bg-gray-50"
-            }`}
+            variant={trashMode ? "default" : "outline"}
+            className="w-full"
           >
             {trashMode ? "← 返回会话列表" : "🗑 回收站"}
-          </button>
+          </Button>
         </div>
         <div className="flex-1 overflow-y-auto">
           {trashMode ? (
@@ -446,7 +445,8 @@ export default function DialogueView({ activeSessionId, onSelectSession }: Props
       <div className="flex-1 flex flex-col min-w-0">
         <div className="flex-1 overflow-y-auto p-4 space-y-4">
           {!activeSessionId ? (
-            <div className="h-full flex items-center justify-center text-gray-400 text-sm">
+            <div className="h-full flex flex-col items-center justify-center gap-2 text-muted-foreground text-sm">
+              <MessagesSquare className="size-8 text-muted-foreground/50" />
               请选择或新建一个会话开始对话
             </div>
           ) : (
@@ -472,32 +472,28 @@ export default function DialogueView({ activeSessionId, onSelectSession }: Props
                 {activeSessionId ? "正在生成…" : "后台任务运行中…"}
               </span>
               {activeSessionId ? (
-                <button
+                <Button
+                  variant="destructive"
                   onClick={() => stop(activeSessionId)}
-                  className="px-3 py-1.5 bg-red-50 text-red-600 rounded-md text-sm hover:bg-red-100"
                 >
                   ■ 停止
-                </button>
+                </Button>
               ) : (
                 <span className="text-xs text-gray-400">切回原会话查看/停止</span>
               )}
             </div>
           ) : (
             <div className="flex gap-2">
-              <input
+              <Input
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
                 onKeyDown={(e) => e.key === "Enter" && !e.shiftKey && handleSend()}
                 placeholder="输入消息，Enter 发送"
-                className="flex-1 px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="flex-1"
               />
-              <button
-                onClick={handleSend}
-                disabled={!input.trim() || state.streaming}
-                className="px-4 py-2 bg-blue-600 text-white rounded-md text-sm hover:bg-blue-700 disabled:opacity-40"
-              >
+              <Button onClick={handleSend} disabled={!input.trim() || state.streaming}>
                 发送
-              </button>
+              </Button>
             </div>
           )}
         </div>
@@ -530,7 +526,8 @@ function TrashView({
 }) {
   if (sessions.length === 0) {
     return (
-      <div className="px-4 py-8 text-center text-sm text-gray-400">
+      <div className="px-4 py-8 flex flex-col items-center gap-2 text-center text-sm text-muted-foreground">
+        <Trash2 className="size-6 text-muted-foreground/50" />
         回收站是空的
       </div>
     );
@@ -540,31 +537,20 @@ function TrashView({
     <div className="text-xs">
       <div className="px-3 py-2 bg-gray-100 border-b border-gray-200 space-y-1.5">
         <label className="flex items-center gap-2 cursor-pointer">
-          <input type="checkbox" checked={allSelected} onChange={onToggleAll} />
+          <Checkbox checked={allSelected} onCheckedChange={onToggleAll} />
           <span className="text-gray-600">全选</span>
-          <span className="text-gray-400">（{selected.size}/{sessions.length}）</span>
+          <span className="text-muted-foreground">（{selected.size}/{sessions.length}）</span>
         </label>
         <div className="flex gap-1.5">
-          <button
-            onClick={onRestoreSelected}
-            disabled={selected.size === 0}
-            className="px-2 py-1 bg-blue-600 text-white rounded text-xs hover:bg-blue-700 disabled:opacity-40"
-          >
+          <Button size="sm" onClick={onRestoreSelected} disabled={selected.size === 0}>
             恢复({selected.size})
-          </button>
-          <button
-            onClick={onDeleteSelected}
-            disabled={selected.size === 0}
-            className="px-2 py-1 bg-red-500 text-white rounded text-xs hover:bg-red-600 disabled:opacity-40"
-          >
+          </Button>
+          <Button size="sm" variant="destructive" onClick={onDeleteSelected} disabled={selected.size === 0}>
             彻底删除({selected.size})
-          </button>
-          <button
-            onClick={onEmpty}
-            className="px-2 py-1 bg-gray-500 text-white rounded text-xs hover:bg-gray-600"
-          >
+          </Button>
+          <Button size="sm" variant="outline" onClick={onEmpty}>
             清空
-          </button>
+          </Button>
         </div>
       </div>
       {sessions.map((s) => (
@@ -572,24 +558,17 @@ function TrashView({
           key={s.id}
           className="group flex items-center gap-2 px-3 py-2 border-b border-gray-100"
         >
-          <input
-            type="checkbox"
+          <Checkbox
             checked={selected.has(s.id)}
-            onChange={() => onToggle(s.id)}
+            onCheckedChange={() => onToggle(s.id)}
           />
           <span className="flex-1 truncate text-gray-700">{s.title}</span>
-          <button
-            onClick={() => onRestore(s.id)}
-            className="opacity-0 group-hover:opacity-100 text-blue-500 hover:text-blue-700"
-          >
+          <Button variant="ghost" size="sm" onClick={() => onRestore(s.id)} className="opacity-0 group-hover:opacity-100 px-1 text-primary">
             恢复
-          </button>
-          <button
-            onClick={() => onDelete(s.id)}
-            className="opacity-0 group-hover:opacity-100 text-red-400 hover:text-red-600"
-          >
+          </Button>
+          <Button variant="ghost" size="sm" onClick={() => onDelete(s.id)} className="opacity-0 group-hover:opacity-100 px-1 text-destructive">
             彻底删
-          </button>
+          </Button>
         </div>
       ))}
     </div>
@@ -610,7 +589,7 @@ function MessageBubble({
     return (
       <div className="flex justify-end">
         <div className="max-w-[75%]">
-          <div className="bg-blue-600 text-white rounded-xl px-4 py-2 text-sm whitespace-pre-wrap">
+          <div className="bg-primary text-primary-foreground rounded-xl px-4 py-2 text-sm whitespace-pre-wrap">
             {message.content}
           </div>
           {message.createdAt ? (
@@ -647,7 +626,7 @@ function MessageBubble({
           <ThinkingBlock text={message.thinking} />
         ) : null}
         {message.content ? (
-          <div className="md-content bg-white border border-gray-200 rounded-xl px-4 py-3">
+          <div className="md-content bg-white border border-border rounded-xl px-4 py-3">
             <ReactMarkdown remarkPlugins={[remarkGfm]}>{message.content}</ReactMarkdown>
           </div>
         ) : null}
@@ -659,12 +638,12 @@ function MessageBubble({
           />
         ) : null}
         {message.error ? (
-          <div className="text-red-500 text-sm bg-red-50 border border-red-200 rounded-xl px-4 py-2">
-            错误：{message.error}
-          </div>
+          <Alert variant="destructive">
+            <AlertDescription>错误：{message.error}</AlertDescription>
+          </Alert>
         ) : null}
         {message.streaming && !message.content ? (
-          <div className="text-gray-400 text-sm bg-white border border-gray-200 rounded-xl px-4 py-3 animate-pulse">
+          <div className="text-muted-foreground text-sm bg-white border border-border rounded-xl px-4 py-3 animate-pulse">
             思考中…
           </div>
         ) : null}
@@ -680,59 +659,46 @@ function MessageBubble({
 function ThinkingBlock({ text }: { text: string }) {
   const [open, setOpen] = useState(false);
   return (
-    <div className="bg-gray-50 border border-gray-200 rounded-lg overflow-hidden text-xs">
-      <button
-        onClick={() => setOpen(!open)}
-        className="w-full px-3 py-1.5 flex items-center justify-between text-gray-500 hover:bg-gray-100"
-      >
-        <span>💭 思考过程</span>
-        <span>{open ? "▲" : "▼"}</span>
-      </button>
-      {open ? (
-        <pre className="px-3 py-2 text-gray-600 whitespace-pre-wrap max-h-60 overflow-y-auto">
+    <Collapsible open={open} onOpenChange={setOpen} className="bg-muted/50 border border-border rounded-lg overflow-hidden text-xs">
+      <CollapsibleTrigger asChild>
+        <button className="w-full px-3 py-1.5 flex items-center justify-between text-muted-foreground hover:bg-muted">
+          <span>💭 思考过程</span>
+          <span>{open ? "▲" : "▼"}</span>
+        </button>
+      </CollapsibleTrigger>
+      <CollapsibleContent>
+        <pre className="px-3 py-2 text-muted-foreground whitespace-pre-wrap max-h-60 overflow-y-auto">
           {text}
         </pre>
-      ) : null}
-    </div>
+      </CollapsibleContent>
+    </Collapsible>
   );
 }
 
 // 工具块（默认折叠，点击展开）
 function ToolBlock({ entry }: { entry: Extract<TimelineEntry, { type: "tool_call" }> | Extract<TimelineEntry, { type: "tool_result" }> }) {
   const [open, setOpen] = useState(false);
-  if (entry.type === "tool_call") {
-    return (
-      <div className="bg-amber-50 border border-amber-200 rounded-lg overflow-hidden text-xs">
+  const isCall = entry.type === "tool_call";
+  return (
+    <Collapsible
+      open={open}
+      onOpenChange={setOpen}
+      className={`rounded-lg overflow-hidden text-xs border ${isCall ? "bg-amber-50 border-amber-200" : "bg-green-50 border-green-200"}`}
+    >
+      <CollapsibleTrigger asChild>
         <button
-          onClick={() => setOpen(!open)}
-          className="w-full px-3 py-1.5 flex items-center justify-between text-amber-700 hover:bg-amber-100"
+          className={`w-full px-3 py-1.5 flex items-center justify-between ${isCall ? "text-amber-700 hover:bg-amber-100" : "text-green-700 hover:bg-green-100"}`}
         >
-          <span>🔧 调用工具：{entry.name}</span>
+          <span>{isCall ? `🔧 调用工具：${entry.name}` : `📦 工具结果：${entry.name}`}</span>
           <span>{open ? "▲" : "▼"}</span>
         </button>
-        {open ? (
-          <pre className="px-3 py-2 text-amber-800 whitespace-pre-wrap max-h-40 overflow-y-auto">
-            {JSON.stringify(entry.args, null, 2)}
-          </pre>
-        ) : null}
-      </div>
-    );
-  }
-  return (
-    <div className="bg-green-50 border border-green-200 rounded-lg overflow-hidden text-xs">
-      <button
-        onClick={() => setOpen(!open)}
-        className="w-full px-3 py-1.5 flex items-center justify-between text-green-700 hover:bg-green-100"
-      >
-        <span>📦 工具结果：{entry.name}</span>
-        <span>{open ? "▲" : "▼"}</span>
-      </button>
-      {open ? (
-        <pre className="px-3 py-2 text-green-800 whitespace-pre-wrap max-h-40 overflow-y-auto">
-          {entry.content}
+      </CollapsibleTrigger>
+      <CollapsibleContent>
+        <pre className={`px-3 py-2 whitespace-pre-wrap max-h-40 overflow-y-auto ${isCall ? "text-amber-800" : "text-green-800"}`}>
+          {isCall ? JSON.stringify(entry.args, null, 2) : entry.content}
         </pre>
-      ) : null}
-    </div>
+      </CollapsibleContent>
+    </Collapsible>
   );
 }
 
@@ -768,12 +734,12 @@ export function FormCard({
   };
 
   return (
-    <div className="bg-indigo-50 border border-indigo-200 rounded-xl p-4 space-y-3 max-w-lg">
+    <div className="bg-muted/50 border border-border rounded-xl p-4 space-y-3 max-w-lg">
       <div className="flex items-center justify-between">
         <h3 className="font-semibold text-gray-800">{form.title}</h3>
         {disabled ? <span className="text-xs text-green-600">✓ 已提交</span> : null}
       </div>
-      {form.description ? <p className="text-xs text-gray-500">{form.description}</p> : null}
+      {form.description ? <p className="text-xs text-muted-foreground">{form.description}</p> : null}
       {(form.fields ?? []).map((f) => (
         <div key={f.key}>
           <label className="block text-xs text-gray-500 mb-1">
@@ -1143,12 +1109,12 @@ function FormTable({
   };
 
   return (
-    <div className="bg-indigo-50 border border-indigo-200 rounded-xl p-4 space-y-3">
+    <div className="bg-muted/50 border border-border rounded-xl p-4 space-y-3">
       <div className="flex items-center justify-between">
         <h3 className="font-semibold text-gray-800">{form.title}</h3>
         {disabled ? <span className="text-xs text-green-600">✓ 已提交</span> : null}
       </div>
-      {form.description ? <p className="text-xs text-gray-500">{form.description}</p> : null}
+      {form.description ? <p className="text-xs text-muted-foreground">{form.description}</p> : null}
       <div className="overflow-x-auto">
         <table className="w-full text-sm border-collapse min-w-[600px]">
           <thead>

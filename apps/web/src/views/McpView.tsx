@@ -6,19 +6,30 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Card, CardContent } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Plug } from "lucide-react";
+import { toast } from "sonner";
 import type { McpServerDto, McpTestResultDto, McpToolInfo } from "@br-agent/shared";
 
 type FormTab = "form" | "json";
 
 export default function McpView() {
   const [servers, setServers] = useState<McpServerDto[]>([]);
-  const [msg, setMsg] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
   const [testResults, setTestResults] = useState<Record<string, McpTestResultDto>>({});
   const [testing, setTesting] = useState<Record<string, boolean>>({});
 
   const load = useCallback(() => {
-    api.listMcpServers().then(setServers).catch((e) => setMsg(e.message));
+    setLoading(true);
+    api
+      .listMcpServers()
+      .then(setServers)
+      .catch((e) => toast.error(e.message))
+      .finally(() => setLoading(false));
   }, []);
 
   useEffect(() => {
@@ -26,14 +37,23 @@ export default function McpView() {
   }, [load]);
 
   const toggle = async (s: McpServerDto) => {
-    await api.toggleMcpServer(s.id, !s.enabled);
-    load();
+    try {
+      await api.toggleMcpServer(s.id, !s.enabled);
+      load();
+    } catch (e) {
+      toast.error((e as Error).message);
+    }
   };
 
   const del = async (s: McpServerDto) => {
     if (!confirm(`确定删除 MCP 服务器「${s.name}」？`)) return;
-    await api.deleteMcpServer(s.id);
-    load();
+    try {
+      await api.deleteMcpServer(s.id);
+      toast.success("已删除 MCP 服务器");
+      load();
+    } catch (e) {
+      toast.error((e as Error).message);
+    }
   };
 
   const test = async (s: McpServerDto) => {
@@ -41,8 +61,11 @@ export default function McpView() {
     try {
       const r = await api.testMcpServer(s.id);
       setTestResults((tr) => ({ ...tr, [s.id]: r }));
+      if (!r.ok) toast.error(r.error || "连接测试失败");
+      else toast.success(`连接成功，发现 ${r.tools.length} 个工具`);
     } catch (e) {
       setTestResults((tr) => ({ ...tr, [s.id]: { ok: false, tools: [], error: (e as Error).message } }));
+      toast.error((e as Error).message);
     } finally {
       setTesting((t) => ({ ...t, [s.id]: false }));
     }
@@ -52,72 +75,61 @@ export default function McpView() {
     <div className="flex-1 overflow-y-auto p-6">
       <div className="flex items-center justify-between mb-4">
         <h2 className="text-lg font-semibold text-gray-800">MCP 连接</h2>
-        <button
-          onClick={() => setShowModal(true)}
-          className="px-4 py-2 bg-blue-600 text-white rounded-md text-sm hover:bg-blue-700"
-        >
+        <Button onClick={() => setShowModal(true)}>
           添加服务器
-        </button>
+        </Button>
       </div>
 
-      {msg && (
-        <div className="mb-4 px-3 py-2 bg-blue-50 border border-blue-200 text-blue-700 rounded-md text-sm">
-          {msg}
+      {loading ? (
+        <div className="grid gap-3">
+          {[0, 1, 2].map((i) => <Skeleton key={i} className="h-20 rounded-xl" />)}
         </div>
-      )}
-
-      {servers.length === 0 ? (
-        <div className="text-gray-400 text-sm">
+      ) : servers.length === 0 ? (
+        <div className="flex flex-col items-center gap-2 text-muted-foreground text-sm py-10">
+          <Plug className="size-8 text-muted-foreground/50" />
           暂无 MCP 服务器。添加后启用，对话中 agent 即可调用其工具。
         </div>
       ) : (
         <div className="grid gap-3">
           {servers.map((s) => (
-            <div key={s.id} className="bg-white border border-gray-200 rounded-lg p-4">
-              <div className="flex items-start justify-between">
+            <Card key={s.id} className="gap-3">
+              <CardContent className="flex items-start justify-between gap-2">
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 flex-wrap">
                     <span className="font-medium text-gray-800">{s.name}</span>
                     <Badge variant="secondary">{s.type}</Badge>
-                    <Badge variant={s.owner === "" ? "secondary" : "outline"} className={s.owner === "" ? "bg-green-50 text-green-700" : "bg-purple-50 text-purple-700"}>
+                    <Badge variant={s.owner === "" ? "secondary" : "outline"}>
                       {s.owner === "" ? "公共" : "私有"}
                     </Badge>
                   </div>
-                  <p className="text-xs text-gray-400 mt-1 font-mono truncate">
+                  <p className="text-xs text-muted-foreground mt-1 font-mono truncate">
                     {s.type === "http" || s.type === "sse" ? s.url : `${s.command} ${s.args.join(" ")}`}
                   </p>
                   {Object.keys(s.headers).length > 0 && (
-                    <p className="text-xs text-gray-400 mt-0.5 font-mono truncate">
+                    <p className="text-xs text-muted-foreground mt-0.5 font-mono truncate">
                       headers: {Object.keys(s.headers).join(", ")}
                     </p>
                   )}
                 </div>
                 <div className="flex items-center gap-3 ml-4">
-                  <button
-                    onClick={() => test(s)}
-                    disabled={testing[s.id]}
-                    className="text-xs text-gray-500 hover:text-blue-600 disabled:opacity-50"
-                  >
+                  <Button variant="ghost" size="sm" onClick={() => test(s)} disabled={testing[s.id]} className="text-muted-foreground hover:text-primary">
                     {testing[s.id] ? "测试中…" : "连接测试"}
-                  </button>
+                  </Button>
                   <Switch
                     checked={s.enabled}
                     onCheckedChange={() => toggle(s)}
                     aria-label={`启用 ${s.name}`}
                   />
                   {s.owner !== "" && (
-                    <button
-                      onClick={() => del(s)}
-                      className="text-xs text-gray-400 hover:text-red-500"
-                    >
+                    <Button variant="ghost" size="sm" onClick={() => del(s)} className="text-muted-foreground hover:text-red-500">
                       删除
-                    </button>
+                    </Button>
                   )}
                 </div>
-              </div>
+              </CardContent>
 
               {testResults[s.id] && (
-                <div className="mt-3 pt-3 border-t border-gray-100">
+                <CardContent className="border-t border-border pt-3">
                   {testResults[s.id].ok ? (
                     <>
                       <p className="text-xs text-green-600 mb-1">连接成功，发现 {testResults[s.id].tools.length} 个工具：</p>
@@ -125,7 +137,7 @@ export default function McpView() {
                         {testResults[s.id].tools.map((t: McpToolInfo) => (
                           <div key={t.name} className="text-xs">
                             <span className="font-mono text-gray-700">{t.name}</span>
-                            <span className="text-gray-400 ml-2">{t.description}</span>
+                            <span className="text-muted-foreground ml-2">{t.description}</span>
                           </div>
                         ))}
                       </div>
@@ -133,9 +145,9 @@ export default function McpView() {
                   ) : (
                     <p className="text-xs text-red-500">连接失败：{testResults[s.id].error}</p>
                   )}
-                </div>
+                </CardContent>
               )}
-            </div>
+            </Card>
           ))}
         </div>
       )}
@@ -190,6 +202,7 @@ function AddServerModal({ onClose, onSaved }: { onClose: () => void; onSaved: ()
           headers: headersObj,
         });
       }
+      toast.success("已添加 MCP 服务器");
       onSaved();
       onClose();
     } catch (e) {
@@ -220,7 +233,7 @@ function AddServerModal({ onClose, onSaved }: { onClose: () => void; onSaved: ()
           <div className="space-y-3">
             <div>
               <label className="block text-xs text-gray-500 mb-1">名称</label>
-              <input className={inputCls} value={name} onChange={(e) => setName(e.target.value)} placeholder="如 my-coffee" />
+              <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="如 my-coffee" />
             </div>
             <div>
               <label className="block text-xs text-gray-500 mb-1">类型</label>
@@ -233,13 +246,12 @@ function AddServerModal({ onClose, onSaved }: { onClose: () => void; onSaved: ()
               <>
                 <div>
                   <label className="block text-xs text-gray-500 mb-1">URL</label>
-                  <input className={inputCls} value={url} onChange={(e) => setUrl(e.target.value)} placeholder="https://.../mcp" />
+                  <Input value={url} onChange={(e) => setUrl(e.target.value)} placeholder="https://.../mcp" />
                 </div>
                 <div>
                   <label className="block text-xs text-gray-500 mb-1">Headers (JSON，可选)</label>
-                  <textarea
-                    className={inputCls}
-                    rows={3}
+                  <Textarea
+                    className="min-h-20"
                     value={headers}
                     onChange={(e) => setHeaders(e.target.value)}
                     placeholder='{"Authorization": "Bearer xxx"}'
@@ -250,11 +262,11 @@ function AddServerModal({ onClose, onSaved }: { onClose: () => void; onSaved: ()
               <>
                 <div>
                   <label className="block text-xs text-gray-500 mb-1">Command</label>
-                  <input className={inputCls} value={command} onChange={(e) => setCommand(e.target.value)} placeholder="如 npx" />
+                  <Input value={command} onChange={(e) => setCommand(e.target.value)} placeholder="如 npx" />
                 </div>
                 <div>
                   <label className="block text-xs text-gray-500 mb-1">Args（空格分隔）</label>
-                  <input className={inputCls} value={args} onChange={(e) => setArgs(e.target.value)} placeholder="如 -y @modelcontextprotocol/server-everything" />
+                  <Input value={args} onChange={(e) => setArgs(e.target.value)} placeholder="如 -y @modelcontextprotocol/server-everything" />
                 </div>
               </>
             )}
@@ -262,13 +274,12 @@ function AddServerModal({ onClose, onSaved }: { onClose: () => void; onSaved: ()
         ) : (
           <div>
             <label className="block text-xs text-gray-500 mb-1">mcpServers JSON</label>
-            <textarea
-              className={inputCls}
-              rows={10}
+            <Textarea
+              className="font-mono min-h-48"
               value={jsonText}
               onChange={(e) => setJsonText(e.target.value)}
             />
-            <p className="text-xs text-gray-400 mt-1">支持 {`{"mcpServers": {...}}`} 格式，取第一个服务器。</p>
+            <p className="text-xs text-muted-foreground mt-1">支持 {`{"mcpServers": {...}}`} 格式，取第一个服务器。</p>
           </div>
         )}
 

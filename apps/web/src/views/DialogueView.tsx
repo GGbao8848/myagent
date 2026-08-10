@@ -455,15 +455,17 @@ export default function DialogueView({ activeSessionId, onSelectSession }: Props
                     <span className="ml-1 text-primary animate-pulse">●</span>
                   ) : null}
                 </span>
-                <button
+                <Button
+                  variant="ghost"
+                  size="xs"
                   onClick={(e) => {
                     e.stopPropagation();
                     deleteSession(s.id);
                   }}
-                  className="opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-destructive text-xs px-1"
+                  className="opacity-0 group-hover:opacity-100 px-1 text-muted-foreground hover:text-destructive"
                 >
                   删
-                </button>
+                </Button>
               </div>
             </div>
           )))}
@@ -690,10 +692,10 @@ function ThinkingBlock({ text }: { text: string }) {
   return (
     <Collapsible open={open} onOpenChange={setOpen} className="text-xs">
       <CollapsibleTrigger asChild>
-        <button className="flex w-full items-center gap-1.5 rounded px-1 py-0.5 text-left text-muted-foreground hover:text-foreground">
+        <Button variant="ghost" size="xs" className="w-full justify-start gap-1.5 px-1 text-muted-foreground hover:text-foreground">
           <ChevronRight className={`size-3.5 shrink-0 transition-transform ${open ? "rotate-90" : ""}`} />
           <span>思考过程</span>
-        </button>
+        </Button>
       </CollapsibleTrigger>
       <CollapsibleContent>
         <pre className="ml-5 max-h-60 overflow-y-auto border-l border-border py-0.5 pl-3 text-muted-foreground whitespace-pre-wrap">
@@ -711,12 +713,12 @@ function ToolBlock({ entry }: { entry: Extract<TimelineEntry, { type: "tool_call
   return (
     <Collapsible open={open} onOpenChange={setOpen} className="text-xs">
       <CollapsibleTrigger asChild>
-        <button className="flex w-full items-center gap-1.5 rounded px-1 py-0.5 text-left text-muted-foreground hover:text-foreground">
+        <Button variant="ghost" size="xs" className="w-full justify-start gap-1.5 px-1 text-muted-foreground hover:text-foreground">
           <ChevronRight className={`size-3.5 shrink-0 transition-transform ${open ? "rotate-90" : ""}`} />
           <span className={isCall ? "text-primary" : "text-green-700"}>
             {isCall ? `调用工具：${entry.name}` : `工具结果：${entry.name}`}
           </span>
-        </button>
+        </Button>
       </CollapsibleTrigger>
       <CollapsibleContent>
         <pre className="ml-5 max-h-40 overflow-y-auto border-l border-border py-0.5 pl-3 text-muted-foreground whitespace-pre-wrap">

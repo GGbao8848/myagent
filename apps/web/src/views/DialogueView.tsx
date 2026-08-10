@@ -10,7 +10,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Collapsible, CollapsibleTrigger, CollapsibleContent } from "@/components/ui/collapsible";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { MessagesSquare, Trash2 } from "lucide-react";
+import { MessagesSquare, Trash2, ChevronRight } from "lucide-react";
 import type { FormColumn, FormDto, FormFieldOption, MessageDto, SessionDto, SSEChatEvent, TimelineEntry } from "@br-agent/shared";
 
 interface LocalMessage {
@@ -655,7 +655,7 @@ function MessageBubble({
           <ThinkingBlock text={message.thinking} />
         ) : null}
         {message.content ? (
-          <div className="md-content bg-white border border-border rounded-xl px-4 py-3">
+          <div className="w-fit max-w-full md-content bg-white border border-border rounded-xl px-4 py-3">
             <ReactMarkdown remarkPlugins={[remarkGfm]}>{message.content}</ReactMarkdown>
           </div>
         ) : null}
@@ -667,12 +667,12 @@ function MessageBubble({
           />
         ) : null}
         {message.error ? (
-          <Alert variant="destructive">
+          <Alert variant="destructive" className="w-fit max-w-full">
             <AlertDescription>错误：{message.error}</AlertDescription>
           </Alert>
         ) : null}
         {message.streaming && !message.content ? (
-          <div className="text-muted-foreground text-sm bg-white border border-border rounded-xl px-4 py-3 animate-pulse">
+          <div className="w-fit max-w-full text-muted-foreground text-sm bg-white border border-border rounded-xl px-4 py-3 animate-pulse">
             思考中…
           </div>
         ) : null}
@@ -688,15 +688,15 @@ function MessageBubble({
 function ThinkingBlock({ text }: { text: string }) {
   const [open, setOpen] = useState(false);
   return (
-    <Collapsible open={open} onOpenChange={setOpen} className="bg-muted/50 border border-border rounded-lg overflow-hidden text-xs">
+    <Collapsible open={open} onOpenChange={setOpen} className="text-xs">
       <CollapsibleTrigger asChild>
-        <button className="w-full px-3 py-1.5 flex items-center justify-between text-muted-foreground hover:bg-muted">
-          <span>💭 思考过程</span>
-          <span>{open ? "▲" : "▼"}</span>
+        <button className="flex w-full items-center gap-1.5 rounded px-1 py-0.5 text-left text-muted-foreground hover:text-foreground">
+          <ChevronRight className={`size-3.5 shrink-0 transition-transform ${open ? "rotate-90" : ""}`} />
+          <span>思考过程</span>
         </button>
       </CollapsibleTrigger>
       <CollapsibleContent>
-        <pre className="px-3 py-2 text-muted-foreground whitespace-pre-wrap max-h-60 overflow-y-auto">
+        <pre className="ml-5 max-h-60 overflow-y-auto border-l border-border py-0.5 pl-3 text-muted-foreground whitespace-pre-wrap">
           {text}
         </pre>
       </CollapsibleContent>
@@ -709,21 +709,17 @@ function ToolBlock({ entry }: { entry: Extract<TimelineEntry, { type: "tool_call
   const [open, setOpen] = useState(false);
   const isCall = entry.type === "tool_call";
   return (
-    <Collapsible
-      open={open}
-      onOpenChange={setOpen}
-      className={`rounded-lg overflow-hidden text-xs border ${isCall ? "bg-amber-50 border-amber-200" : "bg-green-50 border-green-200"}`}
-    >
+    <Collapsible open={open} onOpenChange={setOpen} className="text-xs">
       <CollapsibleTrigger asChild>
-        <button
-          className={`w-full px-3 py-1.5 flex items-center justify-between ${isCall ? "text-amber-700 hover:bg-amber-100" : "text-green-700 hover:bg-green-100"}`}
-        >
-          <span>{isCall ? `🔧 调用工具：${entry.name}` : `📦 工具结果：${entry.name}`}</span>
-          <span>{open ? "▲" : "▼"}</span>
+        <button className="flex w-full items-center gap-1.5 rounded px-1 py-0.5 text-left text-muted-foreground hover:text-foreground">
+          <ChevronRight className={`size-3.5 shrink-0 transition-transform ${open ? "rotate-90" : ""}`} />
+          <span className={isCall ? "text-primary" : "text-green-700"}>
+            {isCall ? `调用工具：${entry.name}` : `工具结果：${entry.name}`}
+          </span>
         </button>
       </CollapsibleTrigger>
       <CollapsibleContent>
-        <pre className={`px-3 py-2 whitespace-pre-wrap max-h-40 overflow-y-auto ${isCall ? "text-amber-800" : "text-green-800"}`}>
+        <pre className="ml-5 max-h-40 overflow-y-auto border-l border-border py-0.5 pl-3 text-muted-foreground whitespace-pre-wrap">
           {isCall ? JSON.stringify(entry.args, null, 2) : entry.content}
         </pre>
       </CollapsibleContent>

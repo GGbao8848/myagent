@@ -3,6 +3,7 @@ import type { FastifyInstance } from "fastify";
 import {
   listMcpServers,
   createMcpServer,
+  updateMcpServer,
   testConnection,
   setMcpEnabled,
   deleteMcpServer,
@@ -26,6 +27,21 @@ export function registerMcpRoutes(app: FastifyInstance): void {
       return;
     }
   });
+
+  // 编辑服务器（configJson 或逐字段；私有仅本人、公共仅管理员）
+  app.patch<{ Params: { id: string }; Body: CreateMcpServerInput }>(
+    "/api/mcp/servers/:id",
+    async (request, reply) => {
+      const user = request.authUser!;
+      try {
+        return await updateMcpServer(request.params.id, user.username, user.isAdmin, request.body ?? {});
+      } catch (e) {
+        const code = (e as { code?: number }).code === 403 ? 403 : 400;
+        reply.code(code).send({ error: (e as Error).message });
+        return;
+      }
+    }
+  );
 
   // 连接测试，返回工具列表
   app.post<{ Params: { id: string } }>("/api/mcp/servers/:id/test", async (request, reply) => {

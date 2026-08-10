@@ -79,9 +79,9 @@ export default function MemoryView() {
   return (
     <div className="flex-1 overflow-y-auto p-6">
       <div className="flex items-center justify-between mb-4">
-        <h2 className="text-lg font-semibold text-gray-800">记忆</h2>
+        <h2 className="text-lg font-semibold text-foreground">记忆</h2>
       </div>
-      <p className="text-sm text-gray-500 mb-4">
+      <p className="text-sm text-muted-foreground mb-4">
         对话中会自动提取你的偏好，也可手动添加。这些观察会注入后续对话，帮助更贴合你的习惯。
       </p>
 
@@ -100,7 +100,7 @@ export default function MemoryView() {
       </div>
 
       {loading ? (
-        <div className="grid gap-3">
+        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
           {[0, 1, 2].map((i) => <Skeleton key={i} className="h-24 rounded-xl" />)}
         </div>
       ) : observations.length === 0 ? (
@@ -109,12 +109,12 @@ export default function MemoryView() {
           暂无观察。发消息后会自动提取你的偏好，或手动添加。
         </div>
       ) : (
-        <div className="grid gap-3">
+        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
           {observations.map((o) => (
             <Card key={o.id} className={`gap-3 ${o.enabled ? "" : "opacity-60"}`}>
               <CardContent className="flex items-start justify-between gap-2">
                 <div className="flex-1 min-w-0">
-                  <p className="text-sm text-gray-800">{o.content}</p>
+                  <p className="text-sm text-foreground">{o.content}</p>
                   <div className="flex items-center gap-2 mt-1 flex-wrap">
                     <Badge variant={o.source === "auto" ? "secondary" : "outline"}>
                       {o.source === "auto" ? "自动提取" : "手动"}
@@ -132,7 +132,7 @@ export default function MemoryView() {
                     onCheckedChange={() => toggle(o)}
                     aria-label={`启用观察`}
                   />
-                  <Button variant="ghost" size="sm" onClick={() => del(o)} className="text-muted-foreground hover:text-red-500">
+                  <Button variant="ghost" size="sm" onClick={() => del(o)} className="text-muted-foreground hover:text-destructive">
                     删除
                   </Button>
                 </div>

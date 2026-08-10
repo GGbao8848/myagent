@@ -6,6 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { FolderKanban } from "lucide-react";
 import { toast } from "sonner";
@@ -80,17 +81,18 @@ export default function SkillsView() {
   return (
     <div className="flex-1 overflow-y-auto p-6">
       <div className="flex items-center justify-between mb-4">
-        <h2 className="text-lg font-semibold text-gray-800">技能</h2>
+        <h2 className="text-lg font-semibold text-foreground">技能</h2>
         <div className="flex items-center gap-2">
           {isAdmin && (
-            <select
-              value={isPublic ? "public" : "private"}
-              onChange={(e) => setIsPublic(e.target.value === "public")}
-              className="h-8 rounded-md border border-input bg-background px-3 text-sm"
-            >
-              <option value="private">私有（仅自己可见）</option>
-              <option value="public">公共（所有用户可见）</option>
-            </select>
+            <Select value={isPublic ? "public" : "private"} onValueChange={(v) => setIsPublic(v === "public")}>
+              <SelectTrigger size="sm" className="w-44">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="private">私有（仅自己可见）</SelectItem>
+                <SelectItem value="public">公共（所有用户可见）</SelectItem>
+              </SelectContent>
+            </Select>
           )}
           <Button onClick={() => fileRef.current?.click()} disabled={uploading}>
             {uploading ? "上传中…" : "上传技能 (zip)"}
@@ -112,14 +114,14 @@ export default function SkillsView() {
         onDrop={onDrop}
         onClick={() => fileRef.current?.click()}
         className={`mb-4 border-2 border-dashed rounded-lg p-6 text-center text-sm cursor-pointer transition-colors ${
-          dragOver ? "border-blue-500 bg-blue-50 text-blue-600" : "border-gray-300 text-gray-400 hover:border-gray-400"
+          dragOver ? "border-primary bg-primary/5 text-primary" : "border-border text-muted-foreground hover:border-border"
         }`}
       >
         将 zip 文件拖到此处，或点击选择上传（{isAdmin ? `将作为${isPublic ? "公共" : "私有"}技能` : "私有技能"}）
       </div>
 
       {loading ? (
-        <div className="grid gap-3">
+        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
           {[0, 1, 2].map((i) => <Skeleton key={i} className="h-20 rounded-xl" />)}
         </div>
       ) : skills.length === 0 ? (
@@ -128,12 +130,12 @@ export default function SkillsView() {
           暂无技能。上传包含 SKILL.md 的 zip 包安装技能。
         </div>
       ) : (
-        <div className="grid gap-3">
+        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
           {skills.map((s) => (
             <Card key={s.id} className="gap-3 flex-row items-center justify-between">
               <div className="flex-1 min-w-0 px-5">
                 <div className="flex items-center gap-2">
-                  <span className="font-medium text-gray-800">{s.name}</span>
+                  <span className="font-medium text-foreground">{s.name}</span>
                   <Badge variant={s.owner === "" ? "secondary" : "outline"}>
                     {s.owner === "" ? "公共" : "私有"}
                   </Badge>
@@ -148,7 +150,7 @@ export default function SkillsView() {
                   aria-label={`启用 ${s.name}`}
                 />
                 {s.owner !== "" && (
-                  <Button variant="ghost" size="sm" onClick={() => del(s)} className="text-muted-foreground hover:text-red-500">
+                  <Button variant="ghost" size="sm" onClick={() => del(s)} className="text-muted-foreground hover:text-destructive">
                     删除
                   </Button>
                 )}

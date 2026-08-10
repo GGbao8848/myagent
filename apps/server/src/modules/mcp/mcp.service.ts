@@ -211,6 +211,70 @@ export async function createMcpServer(owner: string, input: CreateMcpServerInput
   return rowToDto(row);
 }
 
+// 编辑服务器：支持 configJson 整体覆盖或逐字段更新；私有仅本人、公共仅管理员
+export async function updateMcpServer(
+  id: string,
+  owner: string,
+  isAdmin: boolean,
+  input: CreateMcpServerInput
+): Promise<McpServerDto> {
+  const row = await prisma.mcpServer.findFirst({ where: { id } });
+  if (!row) throw new Error("服务器不存在");
+  if (row.owner === "" && !isAdmin) {
+    throw Object.assign(new Error("公共服务器仅管理员可修改"), { code: 403 });
+  }
+  if (row.owner !== "" && row.owner !== owner) {
+    throw Object.assign(new Error("无权限修改该服务器"), { code: 403 });
+  }
+
+  let name = row.name;
+  let type = row.type;
+  let url = row.url;
+  let command = row.command;
+  let args: unknown = row.args;
+  let headers: unknown = row.headers;
+
+  if (input.configJson) {
+    const parsed = parseConfigJson(input.configJson);
+    name = parsed.name;
+    type = parsed.type;
+    url = parsed.url;
+    command = parsed.command;
+    args = parsed.args;
+    headers = parsed.headers;
+  } else {
+    if (input.name !== undefined) name = input.name;
+    if (input.type !== undefined) type = input.type;
+    if (input.url !== undefined) url = input.url;
+    if (input.command !== undefined) command = input.command;
+    if (input.args !== undefined) args = input.args;
+    if (input.headers !== undefined) headers = input.headers;
+  }
+
+  const normType = normalizeType(type);
+  if (!String(name).trim()) throw new Error("服务器名称不能为空");
+  if ((normType === "http" || normType === "sse") && !String(url).trim()) {
+    throw new Error("HTTP 服务器必须提供 url");
+  }
+  if (normType === "stdio" && !String(command).trim()) {
+    throw new Error("stdio 服务器必须提供 command");
+  }
+
+  const updated = await prisma.mcpServer.update({
+    where: { id },
+    data: {
+      name: String(name).trim(),
+      type: normType,
+      url: String(url).trim(),
+      command: String(command).trim(),
+      args: Array.isArray(args) ? (args as string[]) : [],
+      headers: headers && typeof headers === "object" ? (headers as Record<string, string>) : {},
+    },
+  });
+  invalidateMcpClient(owner);
+  return rowToDto(updated);
+}
+
 // ── 连接测试 ──
 
 export async function testConnection(id: string, owner: string): Promise<McpTestResultDto> {

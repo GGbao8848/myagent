@@ -63,7 +63,7 @@ export default function App() {
 
   if (authed === null) {
     return (
-      <div className="h-full flex items-center justify-center text-gray-400">
+      <div className="h-full flex items-center justify-center text-muted-foreground">
         正在加载…
       </div>
     );
@@ -73,7 +73,7 @@ export default function App() {
     return (
       <div className="h-full flex items-center justify-center">
         <div className="text-center space-y-4">
-          <h1 className="text-xl font-semibold text-gray-800">BR-Agent</h1>
+          <h1 className="text-xl font-semibold text-foreground">BR-Agent</h1>
           <Button onClick={() => login()} size="lg">
             使用企业账号登录
           </Button>
@@ -83,7 +83,7 @@ export default function App() {
   }
 
   return (
-    <div className="h-full flex bg-gray-50">
+    <div className="h-full flex bg-muted/50">
       {/* 侧边栏 */}
       <aside className="w-fit bg-white border-r border-border flex flex-col">
         <div className="p-4 border-b border-border">

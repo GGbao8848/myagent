@@ -67,6 +67,8 @@ export const api = {
   listMcpServers: () => json<McpServerDto[]>("/api/mcp/servers"),
   createMcpServer: (body: Record<string, unknown>) =>
     json<McpServerDto>("/api/mcp/servers", { method: "POST", body: JSON.stringify(body) }),
+  updateMcpServer: (id: string, body: Record<string, unknown>) =>
+    json<McpServerDto>(`/api/mcp/servers/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
   testMcpServer: (id: string) =>
     json<McpTestResultDto>(`/api/mcp/servers/${id}/test`, { method: "POST", body: JSON.stringify({}) }),
   toggleMcpServer: (id: string, enabled: boolean) =>

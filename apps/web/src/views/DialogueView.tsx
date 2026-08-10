@@ -5,6 +5,8 @@ import remarkGfm from "remark-gfm";
 import { api, chatStream } from "../api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Collapsible, CollapsibleTrigger, CollapsibleContent } from "@/components/ui/collapsible";
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -87,6 +89,9 @@ export default function DialogueView({ activeSessionId, onSelectSession }: Props
   const flowsRef = useRef<Map<string, FlowState>>(new Map());
   const controllersRef = useRef<Map<string, AbortController>>(new Map());
   const bottomRef = useRef<HTMLDivElement>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const nearBottomRef = useRef(true); // 用户是否停留在底部附近（距底 < 100px）
+  const pendingJumpRef = useRef(false); // 切会话后待执行的无动画跳底标记
 
   // states 的 ref 镜像：后台流回调与切换会话时读取最新基础状态，避免依赖过期
   const statesRef = useRef<Record<string, SessionState>>({});
@@ -113,6 +118,8 @@ export default function DialogueView({ activeSessionId, onSelectSession }: Props
       .getSession(activeSessionId)
       .then((detail) => {
         if (cancelled) return;
+        // 历史加载完成：无动画定位到底部（避免从顶部平滑滑过整个会话）
+        pendingJumpRef.current = true;
         const flow = flowsRef.current.get(activeSessionId);
         const base = statesRef.current[activeSessionId] ?? emptySessionState();
         const persisted = detail.messages.map((m) => ({
@@ -148,10 +155,32 @@ export default function DialogueView({ activeSessionId, onSelectSession }: Props
     };
   }, [activeSessionId, setStateFor]);
 
-  // 自动滚动到底部
+  // 自动滚动：切会话后无动画定位到底部；流式更新仅在用户停留在底部附近时平滑跟随，
+  // 用户向上滚动查看中间内容时暂停自动滚动，不打扰
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+    const el = scrollRef.current;
+    if (!el) return;
+    if (pendingJumpRef.current) {
+      pendingJumpRef.current = false;
+      el.scrollTop = el.scrollHeight;
+      nearBottomRef.current = true;
+      return;
+    }
+    if (nearBottomRef.current) {
+      bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+    }
   }, [messages]);
+
+  // 跟踪用户是否停留在底部附近（距底 < 100px 视为在底部）
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const onScroll = () => {
+      nearBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 100;
+    };
+    el.addEventListener("scroll", onScroll, { passive: true });
+    return () => el.removeEventListener("scroll", onScroll);
+  }, []);
 
   // 新建会话：总是切换到干净会话（若已有未发消息的空会话则复用它，避免堆积空会话）；返回会话 id 供发送复用
   const newSession = async (): Promise<string> => {
@@ -384,7 +413,7 @@ export default function DialogueView({ activeSessionId, onSelectSession }: Props
   return (
     <div className="flex flex-1 min-w-0 h-full">
       {/* 会话列表 */}
-      <div className="w-56 border-r border-gray-200 bg-gray-50 flex flex-col">
+      <div className="w-56 border-r border-border bg-muted/50 flex flex-col">
         <div className="p-3 space-y-2">
           <Button onClick={newSession} disabled={trashMode} className="w-full">
             + 新建会话
@@ -414,16 +443,16 @@ export default function DialogueView({ activeSessionId, onSelectSession }: Props
             sessions.map((s) => (
             <div
               key={s.id}
-              className={`group px-3 py-2 cursor-pointer text-sm border-b border-gray-100 ${
-                activeSessionId === s.id ? "bg-blue-50" : "hover:bg-gray-100"
+              className={`group px-3 py-2 cursor-pointer text-sm border-b border-border ${
+                activeSessionId === s.id ? "bg-primary/10" : "hover:bg-muted"
               }`}
               onClick={() => onSelectSession(s.id)}
             >
               <div className="flex items-center justify-between">
-                <span className="truncate text-gray-800">
+                <span className="truncate text-foreground">
                   {s.title}
                   {states[s.id]?.streaming ? (
-                    <span className="ml-1 text-blue-500 animate-pulse">●</span>
+                    <span className="ml-1 text-primary animate-pulse">●</span>
                   ) : null}
                 </span>
                 <button
@@ -431,7 +460,7 @@ export default function DialogueView({ activeSessionId, onSelectSession }: Props
                     e.stopPropagation();
                     deleteSession(s.id);
                   }}
-                  className="opacity-0 group-hover:opacity-100 text-gray-400 hover:text-red-500 text-xs px-1"
+                  className="opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-destructive text-xs px-1"
                 >
                   删
                 </button>
@@ -443,7 +472,7 @@ export default function DialogueView({ activeSessionId, onSelectSession }: Props
 
       {/* 消息区 */}
       <div className="flex-1 flex flex-col min-w-0">
-        <div className="flex-1 overflow-y-auto p-4 space-y-4">
+        <div ref={scrollRef} className="flex-1 overflow-y-auto p-4 space-y-4">
           {!activeSessionId ? (
             <div className="h-full flex flex-col items-center justify-center gap-2 text-muted-foreground text-sm">
               <MessagesSquare className="size-8 text-muted-foreground/50" />
@@ -465,10 +494,10 @@ export default function DialogueView({ activeSessionId, onSelectSession }: Props
         </div>
 
         {/* 输入区：停止按钮常驻（该会话运行中时） */}
-        <div className="border-t border-gray-200 p-4 bg-white">
+        <div className="border-t border-border p-4 bg-white">
           {state.streaming ? (
             <div className="flex items-center justify-between">
-              <span className="text-sm text-gray-400 animate-pulse">
+              <span className="text-sm text-muted-foreground animate-pulse">
                 {activeSessionId ? "正在生成…" : "后台任务运行中…"}
               </span>
               {activeSessionId ? (
@@ -479,7 +508,7 @@ export default function DialogueView({ activeSessionId, onSelectSession }: Props
                   ■ 停止
                 </Button>
               ) : (
-                <span className="text-xs text-gray-400">切回原会话查看/停止</span>
+                <span className="text-xs text-muted-foreground">切回原会话查看/停止</span>
               )}
             </div>
           ) : (
@@ -535,10 +564,10 @@ function TrashView({
   const allSelected = selected.size === sessions.length;
   return (
     <div className="text-xs">
-      <div className="px-3 py-2 bg-gray-100 border-b border-gray-200 space-y-1.5">
+      <div className="px-3 py-2 bg-muted border-b border-border space-y-1.5">
         <label className="flex items-center gap-2 cursor-pointer">
           <Checkbox checked={allSelected} onCheckedChange={onToggleAll} />
-          <span className="text-gray-600">全选</span>
+          <span className="text-muted-foreground">全选</span>
           <span className="text-muted-foreground">（{selected.size}/{sessions.length}）</span>
         </label>
         <div className="flex gap-1.5">
@@ -556,13 +585,13 @@ function TrashView({
       {sessions.map((s) => (
         <div
           key={s.id}
-          className="group flex items-center gap-2 px-3 py-2 border-b border-gray-100"
+          className="group flex items-center gap-2 px-3 py-2 border-b border-border"
         >
           <Checkbox
             checked={selected.has(s.id)}
             onCheckedChange={() => onToggle(s.id)}
           />
-          <span className="flex-1 truncate text-gray-700">{s.title}</span>
+          <span className="flex-1 truncate text-foreground">{s.title}</span>
           <Button variant="ghost" size="sm" onClick={() => onRestore(s.id)} className="opacity-0 group-hover:opacity-100 px-1 text-primary">
             恢复
           </Button>
@@ -593,7 +622,7 @@ function MessageBubble({
             {message.content}
           </div>
           {message.createdAt ? (
-            <div className="text-right text-[11px] text-gray-400 mt-1">{formatMsgTime(message.createdAt)}</div>
+            <div className="text-right text-[11px] text-muted-foreground mt-1">{formatMsgTime(message.createdAt)}</div>
           ) : null}
         </div>
       </div>
@@ -648,7 +677,7 @@ function MessageBubble({
           </div>
         ) : null}
         {message.createdAt ? (
-          <div className="text-[11px] text-gray-400">{formatMsgTime(message.createdAt)}</div>
+          <div className="text-[11px] text-muted-foreground">{formatMsgTime(message.createdAt)}</div>
         ) : null}
       </div>
     </div>
@@ -736,16 +765,16 @@ export function FormCard({
   return (
     <div className="bg-muted/50 border border-border rounded-xl p-4 space-y-3 max-w-lg">
       <div className="flex items-center justify-between">
-        <h3 className="font-semibold text-gray-800">{form.title}</h3>
+        <h3 className="font-semibold text-foreground">{form.title}</h3>
         {disabled ? <span className="text-xs text-green-600">✓ 已提交</span> : null}
       </div>
       {form.description ? <p className="text-xs text-muted-foreground">{form.description}</p> : null}
       {(form.fields ?? []).map((f) => (
         <div key={f.key}>
-          <label className="block text-xs text-gray-500 mb-1">
+          <Label className="!block text-xs text-muted-foreground mb-1">
             {f.label}
-            {f.required ? <span className="text-red-500"> *</span> : null}
-          </label>
+            {f.required ? <span className="text-destructive"> *</span> : null}
+          </Label>
           {f.type === "select" ? (
             <SearchSelect
               options={f.options}
@@ -755,34 +784,29 @@ export function FormCard({
               disabled={disabled}
             />
           ) : f.type === "textarea" ? (
-            <textarea
-              className="w-full border border-gray-300 rounded-md px-2 py-1.5 text-sm disabled:bg-gray-50 focus:outline-none focus:border-blue-400"
+            <Textarea
               rows={3}
+              className="min-h-0"
               value={values[f.key] ?? ""}
               onChange={(e) => setField(f.key, e.target.value)}
               placeholder={f.placeholder}
               disabled={disabled}
             />
           ) : (
-            <input
+            <Input
               type={f.type === "number" ? "number" : "text"}
-              className="w-full border border-gray-300 rounded-md px-2 py-1.5 text-sm disabled:bg-gray-50 focus:outline-none focus:border-blue-400"
               value={values[f.key] ?? ""}
               onChange={(e) => setField(f.key, e.target.value)}
               placeholder={f.placeholder}
               disabled={disabled}
             />
           )}
-          {errors[f.key] ? <p className="text-xs text-red-500 mt-0.5">{errors[f.key]}</p> : null}
+          {errors[f.key] ? <p className="text-xs text-destructive mt-0.5">{errors[f.key]}</p> : null}
         </div>
       ))}
-      <button
-        onClick={handleSubmit}
-        disabled={disabled}
-        className="w-full px-4 py-2 bg-blue-600 text-white rounded-lg text-sm hover:bg-blue-700 disabled:opacity-50"
-      >
+      <Button onClick={handleSubmit} disabled={disabled} className="w-full">
         {form.submitLabel ?? "确认提交"}
-      </button>
+      </Button>
     </div>
   );
 }
@@ -887,31 +911,31 @@ export function SearchSelect({
           onFocus={openMenu}
           placeholder={placeholder}
           disabled={disabled}
-          className="w-full border border-gray-300 rounded-md px-2 py-1.5 text-sm disabled:bg-gray-50 focus:outline-none focus:border-blue-400"
+          className="w-full border border-input rounded-md px-2 py-1.5 text-sm disabled:bg-muted focus:outline-none focus:border-ring"
         />
       ) : (
         <button
           type="button"
           onClick={() => (open ? setOpen(false) : openMenu())}
-          className="w-full text-left border border-gray-300 rounded-md px-2 py-1.5 text-sm bg-white disabled:bg-gray-50 flex items-center justify-between focus:outline-none focus:border-blue-400"
+          className="w-full text-left border border-input rounded-md px-2 py-1.5 text-sm bg-background disabled:bg-muted flex items-center justify-between focus:outline-none focus:border-ring"
           disabled={disabled}
         >
-          <span className={selected ? "" : "text-gray-400"}>
+          <span className={selected ? "" : "text-muted-foreground"}>
             {selected ? selected.label : placeholder ?? "请选择"}
           </span>
-          <span className="text-gray-400 text-xs">{open ? "▲" : "▼"}</span>
+          <span className="text-muted-foreground text-xs">{open ? "▲" : "▼"}</span>
         </button>
       )}
       {open && pos ? (
         <div
           ref={listRef}
-          className="fixed z-50 bg-white border border-gray-200 rounded-md shadow-lg overflow-hidden"
+          className="fixed z-50 bg-popover border border-border rounded-md shadow-md overflow-hidden"
           style={{ top: pos.top, left: pos.left, width: pos.width }}
         >
           {!allowCustom ? (
             <input
               autoFocus
-              className="w-full px-2 py-1.5 text-sm border-b border-gray-200 outline-none"
+              className="w-full px-2 py-1.5 text-sm border-b border-border outline-none"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               placeholder="搜索…"
@@ -922,8 +946,8 @@ export function SearchSelect({
               <li key={o.value}>
                 <button
                   type="button"
-                  className={`w-full text-left px-2 py-1.5 text-sm hover:bg-blue-50 ${
-                    o.value === value ? "bg-blue-50 text-blue-700" : "text-gray-700"
+                  className={`w-full text-left px-2 py-1.5 text-sm hover:bg-muted ${
+                    o.value === value ? "bg-muted text-primary" : "text-foreground"
                   }`}
                   onClick={() => {
                     onChange(o.value);
@@ -939,7 +963,7 @@ export function SearchSelect({
               <li>
                 <button
                   type="button"
-                  className="w-full text-left px-2 py-1.5 text-sm text-blue-600 hover:bg-blue-50"
+                  className="w-full text-left px-2 py-1.5 text-sm text-primary hover:bg-muted"
                   onClick={() => {
                     onChange(query);
                     setDisplay(query);
@@ -951,7 +975,7 @@ export function SearchSelect({
               </li>
             ) : null}
             {filtered.length === 0 ? (
-              <li className="px-2 py-1.5 text-xs text-gray-400">
+              <li className="px-2 py-1.5 text-xs text-muted-foreground">
                 {allowCustom && !query ? "无选项" : "无匹配选项"}
               </li>
             ) : null}
@@ -1111,7 +1135,7 @@ function FormTable({
   return (
     <div className="bg-muted/50 border border-border rounded-xl p-4 space-y-3">
       <div className="flex items-center justify-between">
-        <h3 className="font-semibold text-gray-800">{form.title}</h3>
+        <h3 className="font-semibold text-foreground">{form.title}</h3>
         {disabled ? <span className="text-xs text-green-600">✓ 已提交</span> : null}
       </div>
       {form.description ? <p className="text-xs text-muted-foreground">{form.description}</p> : null}
@@ -1122,12 +1146,12 @@ function FormTable({
               {cols.map((c) => (
                 <th
                   key={c.key}
-                  className="border border-gray-200 bg-gray-50 px-2 py-1.5 text-left text-xs font-medium text-gray-600 whitespace-nowrap"
+                  className="border border-border bg-muted px-2 py-1.5 text-left text-xs font-medium text-muted-foreground whitespace-nowrap"
                 >
                   {c.label}
                 </th>
               ))}
-              {!disabled ? <th className="border border-gray-200 bg-gray-50 px-2 py-1.5 w-10" /> : null}
+              {!disabled ? <th className="border border-border bg-muted px-2 py-1.5 w-10" /> : null}
             </tr>
           </thead>
           <tbody>
@@ -1142,12 +1166,12 @@ function FormTable({
                     let dateSpan = 1;
                     for (let j = ri + 1; j < rows.length && rows[j].date === row.date; j++) dateSpan++;
                     return (
-                      <td key={col.key} rowSpan={dateSpan} className="border border-gray-200 px-1 py-1 align-middle">
+                      <td key={col.key} rowSpan={dateSpan} className="border border-border px-1 py-1 align-middle">
                         <input
                           type="text"
                           value={row.date ?? ""}
                           readOnly
-                          className="w-28 bg-transparent border-0 px-2 py-1.5 text-sm text-gray-700 focus:outline-none cursor-default"
+                          className="w-28 bg-transparent border-0 px-2 py-1.5 text-sm text-foreground focus:outline-none cursor-default"
                         />
                       </td>
                     );
@@ -1155,9 +1179,9 @@ function FormTable({
                   // 项目列：部门工作时占位隐藏（仅项目类显示）
                   const hideProject = col.key === "project_id" && (row.work_type ?? "") === "部门工作";
                   return (
-                    <td key={col.key} className="border border-gray-200 px-1 py-1">
+                    <td key={col.key} className="border border-border px-1 py-1">
                       {hideProject ? (
-                        <div className="px-2 py-1.5 text-xs text-gray-300">—</div>
+                        <div className="px-2 py-1.5 text-xs text-muted-foreground/40">—</div>
                       ) : col.type === "select" ? (
                         <SearchSelect
                           options={resolveOptions(col, row)}
@@ -1178,25 +1202,27 @@ function FormTable({
                           disabled={disabled}
                           className={`${
                             col.key === "std_hours" || col.key === "ovt_hours" ? "w-14" : "w-full"
-                          } border border-gray-300 rounded px-2 py-1.5 text-sm disabled:bg-gray-50 focus:outline-none focus:border-blue-400`}
+                          } border border-input rounded px-2 py-1.5 text-sm disabled:bg-muted focus:outline-none focus:border-ring`}
                         />
                       )}
-                      {errors[`${ri}.${col.key}`] ? <p className="text-xs text-red-500 mt-0.5">必填</p> : null}
+                      {errors[`${ri}.${col.key}`] ? <p className="text-xs text-destructive mt-0.5">必填</p> : null}
                     </td>
                   );
                 })}
                 {!disabled ? (
-                  <td className="border border-gray-200 px-1 py-1 text-center whitespace-nowrap">
-                    <button onClick={() => splitRow(ri)} className="text-xs text-blue-600 hover:underline mr-2">
+                  <td className="border border-border px-1 py-1 text-center whitespace-nowrap">
+                    <Button variant="ghost" size="xs" className="px-1 text-primary" onClick={() => splitRow(ri)}>
                       拆
-                    </button>
-                    <button
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="xs"
+                      className="px-1 text-destructive"
                       onClick={() => removeRow(ri)}
                       disabled={rows.length <= 1}
-                      className="text-xs text-red-500 hover:underline disabled:opacity-40"
                     >
                       删
-                    </button>
+                    </Button>
                   </td>
                 ) : null}
               </tr>
@@ -1205,9 +1231,9 @@ function FormTable({
         </table>
       </div>
       {!disabled ? (
-        <button onClick={handleSubmit} className="px-4 py-1.5 bg-blue-600 text-white rounded-md text-sm hover:bg-blue-700">
+        <Button onClick={handleSubmit} size="sm">
           {form.submitLabel ?? "确认提交"}
-        </button>
+        </Button>
       ) : null}
     </div>
   );

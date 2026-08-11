@@ -1,23 +1,21 @@
 // 根组件：登录态判断 + 视图切换
 import { useEffect, useState } from "react";
-import { MessagesSquare, FolderKanban, Plug, Cpu, Brain, LogOut, Bot, type LucideIcon } from "lucide-react";
+import { MessagesSquare, FolderKanban, Plug, Cpu, LogOut, Bot, type LucideIcon } from "lucide-react";
 import { isAuthenticated, handleCallback, login, logout, getUserName, SESSION_EXPIRED_EVENT } from "./auth";
 import DialogueView from "./views/DialogueView";
 import SkillsView from "./views/SkillsView";
 import McpView from "./views/McpView";
 import LlmView from "./views/LlmView";
-import MemoryView from "./views/MemoryView";
 import { Button } from "@/components/ui/button";
 import type { MessageDto } from "@br-agent/shared";
 
-type View = "dialogue" | "skills" | "mcp" | "llm" | "memory";
+type View = "dialogue" | "skills" | "mcp" | "llm";
 
 const navItems: Array<{ key: View; label: string; icon: LucideIcon }> = [
   { key: "dialogue", label: "对话", icon: MessagesSquare },
   { key: "skills", label: "技能", icon: FolderKanban },
   { key: "mcp", label: "连接管理", icon: Plug },
   { key: "llm", label: "模型配置", icon: Cpu },
-  { key: "memory", label: "记忆", icon: Brain },
 ];
 
 export default function App() {
@@ -137,9 +135,6 @@ export default function App() {
         </div>
         <div className={view === "llm" ? "flex-1 flex flex-col min-w-0 min-h-0" : "hidden"}>
           <LlmView />
-        </div>
-        <div className={view === "memory" ? "flex-1 flex flex-col min-w-0 min-h-0" : "hidden"}>
-          <MemoryView />
         </div>
       </main>
     </div>

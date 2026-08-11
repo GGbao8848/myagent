@@ -8,7 +8,6 @@ import { loadConfig } from "../../config.js";
 import { getActiveProvider } from "../llm/llm.service.js";
 import { decryptKey } from "../llm/llm.crypto.js";
 import { buildSkillPromptAsync } from "../skills/skills.service.js";
-import { getProfilePrompt, extractObservationsAsync, strengthenCredentialMemory } from "../profile/profile.service.js";
 import type { TimelineEntry } from "../../agent/runner.js";
 import type { FormColumn, FormDto, FormFieldOption } from "@br-agent/shared";
 
@@ -152,16 +151,14 @@ export function registerChatRoutes(app: FastifyInstance): void {
         content: m.content,
       }));
 
-      // 技能 + 用户画像注入 system prompt
-      const [skillPromptResult, profilePrompt] = await Promise.all([
-        buildSkillPromptAsync(user.username),
-        getProfilePrompt(user.username),
-      ]);
+      // 技能注入 system prompt
+      const skillPromptResult = await buildSkillPromptAsync(user.username);
       const systemPrompt =
         "你是一个简洁的企业级 AI 助手，用中文回答。需要时使用提供的工具。" +
         "调用脚本/工具时，凡是需要传入密码、密钥、账号口令等参数，必须使用真实值原文，严禁用星号（*）等掩码代替——掩码会导致后端认证失败。" +
-        skillPromptResult.prompt +
-        profilePrompt;
+        "当需要用户的个人信息（账号/密码/偏好/身份/项目背景/历史决定等）时，优先调用 search_memories 从记忆系统查询，查不到再询问用户；" +
+        "对话中明确了值得长期记住的信息时，用 add_memory 记录；add_memory 前先 search_memories 确认该信息尚未记录，已存在则不要重复添加。" +
+        skillPromptResult.prompt;
 
       reply.raw.writeHead(200, {
         "Content-Type": "text/event-stream",
@@ -179,8 +176,6 @@ export function registerChatRoutes(app: FastifyInstance): void {
       let pendingFormArgs: string[] | null = null;
       // 本轮回合提取到的表单（持久化到 assistant 消息，刷新后重新渲染）
       let lastForm: FormDto | null = null;
-      // run_script 凭据（-u/-p）：工具成功调用后强化记忆，避免多轮对话遗忘凭据
-      let lastRunScriptCreds: { username?: string; password?: string } | null = null;
 
       try {
         // 注入完整工具集：内置沙箱工具 + 用户启用 MCP 工具（ToolManager 统一注册）
@@ -252,21 +247,8 @@ export function registerChatRoutes(app: FastifyInstance): void {
             if (evt.event === "tool_call" && evt.tool_name === "run_script") {
               const args = (evt.args as { args?: string[] } | undefined)?.args ?? [];
               pendingFormArgs = args.includes("--form-data") ? args : null;
-              // 缓存 -u/-p 凭据：工具成功调用后强化记忆（多轮对话持续可用）
-              const uIdx = args.indexOf("-u");
-              const pIdx = args.indexOf("-p");
-              const creds: { username?: string; password?: string } = lastRunScriptCreds ?? {};
-              if (uIdx >= 0 && args[uIdx + 1]) creds.username = args[uIdx + 1];
-              if (pIdx >= 0 && args[pIdx + 1] && args[pIdx + 1] !== "******") creds.password = args[pIdx + 1];
-              lastRunScriptCreds = creds.username || creds.password ? creds : null;
               reply.raw.write(sseFrame(evt));
               return;
-            }
-            // agent 成功调用 run_script：用到的凭据已验证可用，强化对应记忆（提升 confidence + 刷新活跃度）
-            if (evt.event === "tool_result" && evt.tool_name === "run_script" && !evt.is_error && lastRunScriptCreds) {
-              const creds = lastRunScriptCreds;
-              lastRunScriptCreds = null;
-              strengthenCredentialMemory(user.username, creds.username ?? "", creds.password ?? "").catch(() => {});
             }
             if (evt.event === "tool_result" && evt.tool_name === "run_script" && pendingFormArgs && !evt.is_error) {
               const form = extractFormFromScript(evt.content);
@@ -333,13 +315,6 @@ export function registerChatRoutes(app: FastifyInstance): void {
       } finally {
         inFlight.delete(sessionId);
         activeGenerations.delete(sessionId);
-        // 对话结束后异步提取用户偏好观察（fire-and-forget，不阻塞响应）
-        if (!controller.signal.aborted) {
-          void extractObservationsAsync(
-            user.username,
-            llmMessages.map((m) => ({ role: m.role, content: m.content }))
-          );
-        }
       }
     }
   );

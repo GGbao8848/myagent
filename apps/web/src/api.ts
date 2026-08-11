@@ -1,5 +1,5 @@
 // API 层：fetch 封装（自动带 token、401 刷新重试）+ SSE 消费
-import type { ChatRequestDto, LlmProviderDto, LlmProviderInput, LlmProviderListDto, McpServerDto, McpTestResultDto, MessageDto, ProfileObservationDto, SessionDetailDto, SessionDto, SkillDto, SSEChatEvent } from "@br-agent/shared";
+import type { ChatRequestDto, LlmProviderDto, LlmProviderInput, LlmProviderListDto, McpServerDto, McpTestResultDto, MessageDto, SessionDetailDto, SessionDto, SkillDto, SSEChatEvent } from "@br-agent/shared";
 import { getTokens, refreshAccessToken, handleSessionExpired } from "./auth";
 
 async function request(path: string, options: RequestInit = {}, retry = true): Promise<Response> {
@@ -90,14 +90,6 @@ export const api = {
     json(`/api/llm/providers/${id}/global-default`, { method: "POST", body: JSON.stringify({}) }),
   testLlmProvider: (id: string) =>
     json<{ ok: boolean; error?: string }>(`/api/llm/providers/${id}/test`, { method: "POST", body: JSON.stringify({}) }),
-
-  // 记忆画像
-  listProfileObservations: () => json<ProfileObservationDto[]>("/api/profile/observations"),
-  createProfileObservation: (content: string) =>
-    json<ProfileObservationDto>("/api/profile/observations", { method: "POST", body: JSON.stringify({ content }) }),
-  updateProfileObservation: (id: string, patch: { content?: string; confidence?: number; enabled?: boolean }) =>
-    json<ProfileObservationDto>(`/api/profile/observations/${id}`, { method: "PATCH", body: JSON.stringify(patch) }),
-  deleteProfileObservation: (id: string) => json(`/api/profile/observations/${id}`, { method: "DELETE" }),
 };
 
 /** 发送消息并消费 SSE 事件流（401 时刷新 token 重试一次，与普通 API 请求一致） */

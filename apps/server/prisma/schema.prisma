@@ -83,21 +83,6 @@ model UserDefaultModel {
   updatedAt  DateTime @updatedAt @map("updated_at")
 }
 
-// 用户记忆画像：对话提取/手动添加的用户偏好观察
-model ProfileObservation {
-  id         String   @id @default(cuid())
-  owner      String   // 用户 id（preferred_username）
-  content    String   // 观察内容，如"用户偏好简洁回复"
-  confidence Float    @default(0.5) // 置信度 0-1
-  source     String   @default("explicit") // explicit=手动 / auto=对话提取
-  enabled    Boolean  @default(true)
-  seenCount  Int      @default(1) // 出现次数（重复提取时提升）
-  createdAt  DateTime @default(now()) @map("created_at")
-  lastSeenAt DateTime @default(now()) @map("last_seen_at")
-
-  @@index([owner])
-}
-
 model Setting {
   key   String @id
   value String

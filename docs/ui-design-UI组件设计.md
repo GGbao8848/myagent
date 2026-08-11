@@ -1,15 +1,25 @@
-# 智能体输出组件能力与 UI 拓展 —— 设计讨论记录
+# UI 组件扩展设计（智能体输出可交互表单）
 
 > 状态：**讨论中，未实施**（2026-08-07 记录）
 > 本文档记录「让智能体输出可交互表单/组件」的方向、现状、方案与待定决策，供后续实现时参考。
 
-## 一、背景与动机
+## 目录
+
+- [背景与动机](#背景与动机)
+- [现状：表单能力已具备大部分](#现状表单能力已具备大部分)
+- [核心卡点：复用与动态声明](#核心卡点复用与动态声明)
+- [文件上传：待定决策](#文件上传待定决策)
+- [开源 UI 组件库评估](#开源-ui-组件库评估)
+- [待定决策](#待定决策)
+- [相关文件](#相关文件)
+
+## 背景与动机
 
 核心价值判断：**智能体不再只输出一堆文字，而是能输出可交互的表单/组件**——用户直接在对话里填表，提交后走业务流程（报工/报销/请假等）。这被认为是项目往后做最可能沉淀为「组件库」的部分。
 
 触发场景：**报销 skill** 未来可能出现以下使用情况——智能体直接输出一个表单，包含下拉框选项、文件上传结构体等。
 
-## 二、现状：表单能力已具备大部分
+## 现状：表单能力已具备大部分
 
 ### 现有表单链路（报工已跑通）
 
@@ -33,7 +43,7 @@ agent 调用 run_script(script=report.py, args=[..., "--form-data"])
 
 前端把表单 payload 拼成文本 `【表单提交：{id}】{json}`，走 send 回 agent，agent 侧脚本解析处理。**表单提交本质是「结构化的对话消息」**。
 
-## 三、核心卡点：复用与动态声明
+## 核心卡点：复用与动态声明
 
 ### 卡点 1：extractFormFromScript 写死报工
 
@@ -51,7 +61,7 @@ agent 调用 run_script(script=report.py, args=[..., "--form-data"])
 
 **推荐方案：新增 `request_form` 专用工具**——agent 传 `{columns, rows?, title?, description?}`，后端工具校验规整成合法 FormDto 后发 form 事件；格式错了返回错误提示让 agent 重试（闭环自愈）。保留两条旧通道不破坏。
 
-## 四、文件上传：待定决策
+## 文件上传：待定决策
 
 现有协议无 file 类型。报销需要文件上传，两条回传路（**本次未定，等报销 skill 实际开发时再决策**）：
 
@@ -62,7 +72,7 @@ agent 调用 run_script(script=report.py, args=[..., "--form-data"])
 
 需前端 FormTable 加 `<input type="file">` 渲染 + FormColumn.type 加 `"file"`。
 
-## 五、开源 UI 组件库评估
+## 开源 UI 组件库评估
 
 需求：**元素种类全（按钮/输入框/文件上传/选择器…）、风格统一、有官网示例，加元素不自建**。技术栈 React 19 + Vite + Tailwind。
 
@@ -76,7 +86,7 @@ agent 调用 run_script(script=report.py, args=[..., "--form-data"])
 
 **倾向**：短期（报销 skill）用 Ant Design Form + Upload 最省事；长期（组件库愿景）用 shadcn/ui 与 Tailwind 风格统一。
 
-## 六、待定决策（后续再讨论）
+## 待定决策
 
 1. **复用边界**：轻量通用化解析器 vs 抽独立组件包（packages/form-lib）
 2. **表单来源**：request_form 专用工具（推荐）vs 标记+SKILL.md 模板 vs 沿用脚本
@@ -84,7 +94,7 @@ agent 调用 run_script(script=report.py, args=[..., "--form-data"])
 4. **开源库选型**：Ant Design（短期）vs shadcn/ui（长期）
 5. **是否把 FormDto 协议升级为完整 JSON Schema**（对接 jsonforms/react-jsonschema-form 等生成器）
 
-## 七、相关文件
+## 相关文件
 
 - 表单协议：[packages/shared/src/index.ts](packages/shared/src/index.ts)（FormDto/FormColumn/FormField/SSEChatEvent）
 - 表单解析：[apps/server/src/modules/chat/chat.routes.ts](apps/server/src/modules/chat/chat.routes.ts)（extractFormFromScript + 两条 form 事件通道）

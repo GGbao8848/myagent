@@ -62,6 +62,15 @@ DEFAULT_MODEL=/models/Qwen3.5-27B-FP8
 - 改 `apps/server/prisma/schema.prisma` 后需 `db:push` + 重启 server 才能用新模型
 - 后端 typecheck：`cd apps/server && npx tsc --noEmit`；前端：`cd apps/web && npx tsc --noEmit`
 
+## C/S 桌面客户端（Electron，apps/desktop）
+
+- **定位**：用户本机的「能力网关」。主进程在本机加载 MCP server（含 stdio，用户本地服务）及未来内置本机工具（文件操作等），经 WebSocket 注册到后端；agent 决策调用时后端经 WS 下发指令、客户端本机执行并回传。MCP 只是第一种能力，协议是通用的（本机工具注册 + 调用转发）。
+- **架构**：窗口远程加载后端 web（`BR_SERVER_URL`，默认 `http://localhost:9005`）；renderer 登录后经 preload 桥 `window.desktopAPI.syncToken()` 把 token 同步主进程 → 主进程连 `ws://<server>/api/ws/client`（带 JWT）。后端 `modules/client-gateway/`（types/registry/ws-routes/tool-adapter）维护注册表，`createAgentTools()` 注入 `local_` 前缀的转发工具。B/S 模式完全保留，无客户端连接时行为不变。
+- **本机 MCP 配置**：存 `%APPDATA%/<app>/mcp-servers.json`，web 的「MCP 连接 → 本机工具」区块（仅 Electron 环境经 `window.desktopAPI` 显示）读写。
+- **启动/构建**：`npm run dev:desktop`（tsc 编译 + `electron .`）；`npm run build:desktop`（tsc + electron-builder NSIS）。产物在 `apps/desktop/release/`。
+- **离线测试样例**：`apps/desktop/scripts/echo-mcp.js`（stdio MCP，command=`node`，args=脚本绝对路径）。
+- **网络注意**：electron 二进制下载用 `ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/`；electron-builder 工具用 `ELECTRON_BUILDER_BINARIES_MIRROR`；均需 7890 代理。electron 版本**必须固定精确号**（如 33.4.11），electron-builder 才能计算版本。
+
 ## 生产部署（PM2，Windows Server）
 
 配置文件：根目录 `ecosystem.config.js`（server 用 `npm.cmd run start`，web 用 `npm.cmd run preview`，带崩溃重启 + 日志到 `logs/`）。

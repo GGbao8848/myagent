@@ -12,6 +12,7 @@ import { registerChatRoutes } from "./modules/chat/chat.routes.js";
 import { registerSkillRoutes } from "./modules/skills/skills.routes.js";
 import { registerMcpRoutes } from "./modules/mcp/mcp.routes.js";
 import { registerLlmRoutes } from "./modules/llm/llm.routes.js";
+import { registerClientGatewayRoutes } from "./modules/client-gateway/ws-routes.js";
 const config = loadConfig();
 // 确保数据目录存在
 mkdirSync(config.dataDir, { recursive: true });
@@ -34,6 +35,7 @@ registerChatRoutes(app);
 registerSkillRoutes(app);
 registerMcpRoutes(app);
 registerLlmRoutes(app);
+await registerClientGatewayRoutes(app);
 
 try {
   await app.listen({ port: config.port, host: "0.0.0.0" });

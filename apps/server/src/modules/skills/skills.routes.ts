@@ -1,6 +1,6 @@
 // 技能模块：路由
 import type { FastifyInstance } from "fastify";
-import { listSkills, installSkill, setSkillEnabled, deleteSkill } from "./skills.service.js";
+import { listSkills, installSkill, setSkillEnabled, deleteSkill, executeSkill, downloadSkillZip } from "./skills.service.js";
 
 export function registerSkillRoutes(app: FastifyInstance): void {
   // 技能列表
@@ -44,6 +44,37 @@ export function registerSkillRoutes(app: FastifyInstance): void {
       }
       await setSkillEnabled(request.params.id, user.username, request.body.enabled);
       return { ok: true };
+    }
+  );
+
+  // 下载技能压缩包（供客户端同步到本地）
+  app.get<{ Params: { id: string } }>("/api/skills/:id/download", async (request, reply) => {
+    const user = request.authUser!;
+    try {
+      return await downloadSkillZip(user.username, request.params.id);
+    } catch (e) {
+      reply.code(404).send({ error: (e as Error).message });
+      return;
+    }
+  });
+
+  // 执行技能脚本（web 端备用；客户端本地执行）
+  app.post<{ Params: { id: string }; Body: { script?: string; args?: string[]; input?: string } }>(
+    "/api/skills/:id/run",
+    async (request, reply) => {
+      const user = request.authUser!;
+      try {
+        return await executeSkill(
+          user.username,
+          request.params.id,
+          request.body?.script ?? "",
+          request.body?.args ?? [],
+          request.body?.input ?? ""
+        );
+      } catch (e) {
+        reply.code(404).send({ error: (e as Error).message });
+        return;
+      }
     }
   );
 

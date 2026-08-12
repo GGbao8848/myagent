@@ -8,7 +8,9 @@
   "scripts": {
     "dev": "npm run dev -w apps/server",
     "dev:web": "npm run dev -w apps/web",
+    "dev:desktop": "npm run dev -w apps/desktop",
     "build": "npm run build -w apps/server && npm run build -w apps/web",
+    "build:desktop": "npm run build -w apps/desktop",
     "db:push": "npm run db:push -w apps/server",
     "db:generate": "npm run db:generate -w apps/server",
     "smoke": "npm run smoke -w apps/server"
@@ -17,6 +19,7 @@
     "esbuild@0.28.1": true,
     "prisma@6.16.0": true,
     "@prisma/client@6.16.0": true,
-    "@prisma/engines@6.16.0": true
+    "@prisma/engines@6.16.0": true,
+    "electron@33.4.11": true
   }
 }

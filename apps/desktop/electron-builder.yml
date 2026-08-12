@@ -1,0 +1,28 @@
+appId: com.br-agent.desktop
+productName: BR-Agent
+electronVersion: 33.4.11
+directories:
+  output: release
+files:
+  - dist/**/*
+  - package.json
+  - node_modules/**/*
+extraResources:
+  - from: resources/default-settings.json
+    to: default-settings.json
+  - from: resources/python
+    to: python
+win:
+  target:
+    - target: nsis
+      arch:
+        - x64
+  # 禁用 exe 资源编辑/签名，避免下载解压 winCodeSign（其 7z 含 macOS 符号链接，Windows 无管理员权限会失败）
+  signAndEditExecutable: false
+nsis:
+  oneClick: false
+  perMachine: true
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: BR-Agent

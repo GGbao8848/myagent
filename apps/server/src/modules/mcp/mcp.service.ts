@@ -57,7 +57,7 @@ function toConnection(s: ServerRow): Connection {
 }
 
 // ── 客户端缓存：同一用户启用服务器配置不变时复用连接，避免每次对话重连外部服务 ──
-const mcpClients = new Map<string, { signature: string; client: MultiServerMCPClient }>();
+const mcpClients = new Map<string, { signature: string; clients: MultiServerMCPClient[]; tools: StructuredToolInterface[] }>();
 
 function serverSignature(servers: ServerRow[]): string {
   return JSON.stringify(
@@ -75,34 +75,39 @@ function serverSignature(servers: ServerRow[]): string {
 export function invalidateMcpClient(owner: string): void {
   const entry = mcpClients.get(owner);
   if (entry) {
-    entry.client.close().catch(() => {});
+    for (const c of entry.clients) c.close().catch(() => {});
     mcpClients.delete(owner);
   }
 }
 
-async function getMcpClient(owner: string): Promise<MultiServerMCPClient | null> {
+/** 按服务器逐个加载 MCP 工具：单个服务器连接失败不影响其他（避免一个不可达导致全部 MCP 工具消失） */
+async function getMcpClient(owner: string): Promise<{ clients: MultiServerMCPClient[]; tools: StructuredToolInterface[] } | null> {
   const servers = await prisma.mcpServer.findMany({
     where: { enabled: true, OR: [{ owner: "" }, { owner }] },
   });
   if (servers.length === 0) return null;
   const signature = serverSignature(servers);
   const cached = mcpClients.get(owner);
-  if (cached && cached.signature === signature) return cached.client;
+  if (cached && cached.signature === signature) return cached;
   if (cached) {
-    cached.client.close().catch(() => {});
+    for (const c of cached.clients) c.close().catch(() => {});
     mcpClients.delete(owner);
   }
-  const config: Record<string, Connection> = {};
-  for (const s of servers) config[s.name] = toConnection(s);
-  const client = new MultiServerMCPClient(config);
-  try {
-    await client.getTools(); // 预加载工具，连接失败在此抛错
-  } catch (e) {
-    client.close().catch(() => {});
-    throw e;
+  const clients: MultiServerMCPClient[] = [];
+  const tools: StructuredToolInterface[] = [];
+  for (const s of servers) {
+    const client = new MultiServerMCPClient({ [s.name]: toConnection(s) });
+    try {
+      const t = await client.getTools();
+      tools.push(...t);
+      clients.push(client);
+    } catch (e) {
+      console.error(`[mcp] ${owner} 服务器 ${s.name} 加载失败:`, (e as Error).message);
+      client.close().catch(() => {});
+    }
   }
-  mcpClients.set(owner, { signature, client });
-  return client;
+  mcpClients.set(owner, { signature, clients, tools });
+  return { clients, tools };
 }
 
 // ── 列表/创建 ──
@@ -319,11 +324,34 @@ export async function deleteMcpServer(id: string, owner: string): Promise<void> 
 // 容错：某服务器连接失败时降级返回 []（不阻断对话），错误写入日志
 export async function getEnabledMcpTools(owner: string): Promise<StructuredToolInterface[]> {
   try {
-    const client = await getMcpClient(owner);
-    if (!client) return [];
-    return await client.getTools();
+    const r = await getMcpClient(owner);
+    return r?.tools ?? [];
   } catch (e) {
     console.error(`[mcp] ${owner} 加载 MCP 工具失败:`, (e as Error).message);
     return [];
+  }
+}
+
+/** 当前用户可用的 MCP 工具列表（供客户端本地 agent 注册工具） */
+export async function listMcpTools(owner: string): Promise<Array<{ name: string; description: string; schema?: unknown }>> {
+  const r = await getMcpClient(owner);
+  if (!r) return [];
+  return r.tools.map((t) => ({
+    name: t.name,
+    description: t.description,
+    schema: (t as unknown as { schema?: unknown }).schema,
+  }));
+}
+
+/** 执行 MCP 工具（客户端本地 agent 经服务器调用；复用服务器 MCP 连接，规避客户端无法直连外网/内网 MCP） */
+export async function callMcpTool(owner: string, toolName: string, args: Record<string, unknown>): Promise<unknown> {
+  const r = await getMcpClient(owner);
+  if (!r) return { error: "没有可用的 MCP 工具" };
+  const t = r.tools.find((tool) => tool.name === toolName);
+  if (!t) return { error: `MCP 工具 ${toolName} 不存在` };
+  try {
+    return await t.invoke(args);
+  } catch (e) {
+    return { error: (e as Error).message };
   }
 }

@@ -98,6 +98,7 @@ export interface SkillDto {
   owner: string;
   enabled: boolean;
   isCustom: boolean;
+  scripts: string[]; // skill 的 scripts 目录下可执行脚本（供客户端注册工具）
   createdAt: string;
 }
 
@@ -163,4 +164,50 @@ export interface ChatRequestDto {
 
 export interface ChatResponse {
   messageId: number;
+}
+
+// ── 桌面客户端（C/S）本机能力网关 ──
+// Electron 主进程在用户本机加载 MCP/内置工具，经 WebSocket 注册到后端供 agent 调用；
+// 渲染进程（远程 web）通过 window.desktopAPI 与主进程桥接。
+
+export interface DesktopMcpServerEntry {
+  name: string;
+  type: "stdio" | "http" | "sse";
+  url?: string;
+  command?: string;
+  args?: string[];
+  headers?: Record<string, string>;
+  enabled: boolean;
+}
+
+export interface DesktopMcpConfig {
+  servers: DesktopMcpServerEntry[];
+}
+
+export interface DesktopStatus {
+  connected: boolean; // WS 是否已连上后端
+  serverUrl: string;
+  toolsCount: number; // 已注册的本机工具数
+  mcpServers: DesktopMcpServerEntry[];
+}
+
+export interface DesktopReloadResult {
+  toolsCount: number;
+  errors: string[];
+}
+
+/** 客户端本地设置（服务器地址等） */
+export interface DesktopSettings {
+  serverUrl?: string; // 如 http://192.168.1.100:9005
+}
+
+/** preload 暴露到 window.desktopAPI 的桥接口（纯浏览器环境不存在） */
+export interface DesktopAPI {
+  syncToken(accessToken: string, refreshToken: string): Promise<{ ok: boolean }>;
+  getStatus(): Promise<DesktopStatus>;
+  getMcpConfig(): Promise<DesktopMcpConfig>;
+  updateMcpConfig(config: DesktopMcpConfig): Promise<DesktopReloadResult>;
+  reloadMcp(): Promise<DesktopReloadResult>;
+  getSettings(): Promise<DesktopSettings>;
+  saveSettings(settings: DesktopSettings): Promise<{ ok: boolean; error?: string }>;
 }

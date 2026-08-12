@@ -28,6 +28,17 @@ declare module "fastify" {
   }
 }
 
+/** 独立校验 token，返回 AuthUser（供 WebSocket 等无 FastifyReply 场景复用） */
+export async function verifyToken(token: string): Promise<AuthUser> {
+  const config = loadConfig();
+  const { payload } = await jwtVerify(token, getJwks(config.keycloakIssuer), {
+    issuer: config.keycloakIssuer,
+  });
+  const username = (payload.preferred_username as string) ?? (payload.sub as string);
+  const roles = (payload.realm_access as { roles?: string[] } | undefined)?.roles ?? [];
+  return { username, sub: payload.sub as string, isAdmin: roles.includes("admin") };
+}
+
 export async function requireAuth(
   request: FastifyRequest,
   reply: FastifyReply
@@ -37,15 +48,8 @@ export async function requireAuth(
     reply.code(401).send({ error: "未授权：缺少 Bearer token" });
     return;
   }
-  const token = header.slice(7);
   try {
-    const config = loadConfig();
-    const { payload } = await jwtVerify(token, getJwks(config.keycloakIssuer), {
-      issuer: config.keycloakIssuer,
-    });
-    const username = (payload.preferred_username as string) ?? (payload.sub as string);
-    const roles = (payload.realm_access as { roles?: string[] } | undefined)?.roles ?? [];
-    request.authUser = { username, sub: payload.sub as string, isAdmin: roles.includes("admin") };
+    request.authUser = await verifyToken(header.slice(7));
   } catch {
     reply.code(401).send({ error: "未授权：token 无效或已过期" });
   }

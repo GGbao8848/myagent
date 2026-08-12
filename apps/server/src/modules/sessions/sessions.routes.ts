@@ -149,6 +149,55 @@ export function registerSessionRoutes(app: FastifyInstance): void {
     return { ok: true };
   });
 
+  // 本地 agent 桌面客户端：写入一条消息（user/assistant），与 web 端共享
+  app.post<{
+    Params: { id: string };
+    Body: {
+      role?: string;
+      content?: string;
+      thinking?: string | null;
+      timeline?: unknown;
+      form?: unknown;
+    };
+  }>("/api/sessions/:id/messages", async (request, reply) => {
+    const user = request.authUser!;
+    const sessionId = request.params.id;
+    const body = request.body ?? {};
+    const role = body.role;
+    const content = body.content?.trim() ?? "";
+    if (role !== "user" && role !== "assistant") {
+      reply.code(400).send({ error: "role 必须为 user 或 assistant" });
+      return;
+    }
+    if (!content) {
+      reply.code(400).send({ error: "消息内容不能为空" });
+      return;
+    }
+    const session = await prisma.session.findFirst({
+      where: { id: sessionId, userId: user.username, deletedAt: null },
+    });
+    if (!session) {
+      reply.code(404).send({ error: "会话不存在" });
+      return;
+    }
+    const msg = await prisma.message.create({
+      data: {
+        sessionId,
+        role,
+        content,
+        thinking: body.thinking ?? null,
+        timeline: body.timeline as never,
+        form: body.form as never,
+      },
+    });
+    // 首条用户消息后自动改标题（与 chat.routes 一致）
+    if (role === "user" && session.title === "新对话") {
+      const title = content.length > 20 ? content.slice(0, 20) + "…" : content;
+      await prisma.session.update({ where: { id: sessionId }, data: { title } });
+    }
+    reply.code(201).send({ id: msg.id, createdAt: msg.createdAt.toISOString() });
+  });
+
   // 恢复回收站会话
   app.post<{ Params: { id: string } }>("/api/sessions/:id/restore", async (request, reply) => {
     const user = request.authUser!;

@@ -44,5 +44,9 @@ export default defineConfig({
         changeOrigin: true,
       },
     },
+    // 禁用缓存：保证任何客户端（含桌面 Electron）加载的都是最新 web，避免旧资源被缓存
+    headers: {
+      "Cache-Control": "no-store",
+    },
   },
 });

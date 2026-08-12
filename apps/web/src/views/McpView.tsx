@@ -18,6 +18,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Plug, Loader2, ChevronsUpDown, RefreshCw, MoreHorizontal, Pencil, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import type { McpServerDto, McpTestResultDto, McpToolInfo } from "@br-agent/shared";
+import McpLocalSection from "./McpLocalSection";
 
 type FormTab = "form" | "json";
 
@@ -99,6 +100,9 @@ export default function McpView() {
           添加服务器
         </Button>
       </div>
+
+      {/* 桌面客户端环境：本机工具配置区块（纯浏览器不渲染） */}
+      {window.desktopAPI && <McpLocalSection />}
 
       {loading ? (
         <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
@@ -230,7 +234,7 @@ export default function McpView() {
 
 // ── 添加服务器 Modal：表单 tab + JSON tab ──
 function AddServerModal({ target, onClose, onSaved }: { target: McpServerDto | null; onClose: () => void; onSaved: () => void }) {
-  const [tab, setTab] = useState<FormTab>("form");
+  const [tab, setTab] = useState<FormTab>("json");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -304,8 +308,8 @@ function AddServerModal({ target, onClose, onSaved }: { target: McpServerDto | n
 
         <Tabs value={tab} onValueChange={(v) => setTab(v as FormTab)} className="mb-1">
           <TabsList className="w-fit">
-            <TabsTrigger value="form">表单填写</TabsTrigger>
             <TabsTrigger value="json">粘贴 JSON</TabsTrigger>
+            <TabsTrigger value="form">表单填写</TabsTrigger>
           </TabsList>
         </Tabs>
 

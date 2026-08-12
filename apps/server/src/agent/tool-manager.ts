@@ -4,6 +4,8 @@ import type { StructuredToolInterface } from "@langchain/core/tools";
 import { z } from "zod";
 import { createBuiltinTools } from "./tools.js";
 import { getEnabledMcpTools } from "../modules/mcp/mcp.service.js";
+import { getClientToolsForUser } from "../modules/client-gateway/registry.js";
+import { createClientTool } from "../modules/client-gateway/tool-adapter.js";
 
 export interface ToolDef {
   name: string;
@@ -82,5 +84,8 @@ export class ToolManager {
 export async function createAgentTools(userId: string): Promise<StructuredToolInterface[]> {
   const builtin = createBuiltinTools();
   const mcpTools = await getEnabledMcpTools(userId);
-  return [...builtin, ...mcpTools];
+  // 本机能力网关：注入该用户已连接桌面客户端注册的工具（客户端离线则为空）
+  const clientSchemas = getClientToolsForUser(userId);
+  const clientTools = clientSchemas.map((s) => createClientTool(s, userId));
+  return [...builtin, ...mcpTools, ...clientTools];
 }

@@ -1,0 +1,219 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+
+@custom-variant dark (&:is(.dark *));
+
+:root {
+  --radius: 0.625rem;
+  --background: oklch(1 0 0);
+  --foreground: oklch(0.145 0 0);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.145 0 0);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.145 0 0);
+  --primary: oklch(0.546 0.245 262.881); /* #2563eb ≈ blue-600，与现有主题一致 */
+  --primary-foreground: oklch(0.985 0 0);
+  --secondary: oklch(0.97 0 0);
+  --secondary-foreground: oklch(0.205 0 0);
+  --muted: oklch(0.97 0 0);
+  --muted-foreground: oklch(0.556 0 0);
+  --accent: oklch(0.97 0 0);
+  --accent-foreground: oklch(0.205 0 0);
+  --destructive: oklch(0.577 0.245 27.325);
+  --border: oklch(0.922 0 0);
+  --input: oklch(0.922 0 0);
+  --ring: oklch(0.546 0.245 262.881);
+  --chart-1: oklch(0.646 0.222 41.116);
+  --chart-2: oklch(0.6 0.118 184.704);
+  --chart-3: oklch(0.398 0.07 227.392);
+  --chart-4: oklch(0.828 0.189 84.429);
+  --chart-5: oklch(0.769 0.188 70.08);
+}
+
+@theme inline {
+  --font-sans: "Geist Variable", ui-sans-serif, system-ui, sans-serif;
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground font-sans;
+  }
+}
+
+html, body, #root {
+  height: 100%;
+  margin: 0;
+}
+
+/* ── Markdown 内容排版（.md-content 容器内生效）── */
+.md-content {
+  font-size: 0.875rem;
+  line-height: 1.7;
+  color: var(--foreground);
+  word-break: break-word;
+}
+
+.md-content > *:first-child {
+  margin-top: 0;
+}
+.md-content > *:last-child {
+  margin-bottom: 0;
+}
+
+.md-content h1,
+.md-content h2,
+.md-content h3,
+.md-content h4 {
+  font-weight: 600;
+  color: var(--foreground);
+  line-height: 1.4;
+  margin: 1.1em 0 0.5em;
+}
+.md-content h1 { font-size: 1.25rem; border-bottom: 1px solid var(--border); padding-bottom: 0.3em; }
+.md-content h2 { font-size: 1.1rem; }
+.md-content h3 { font-size: 1rem; }
+.md-content h4 { font-size: 0.9rem; }
+
+.md-content p {
+  margin: 0.5em 0;
+}
+.md-content ul,
+.md-content ol {
+  margin: 0.5em 0;
+  padding-left: 1.5em;
+}
+.md-content ul { list-style: disc; }
+.md-content ol { list-style: decimal; }
+.md-content li {
+  margin: 0.25em 0;
+}
+.md-content li > ul,
+.md-content li > ol {
+  margin: 0.2em 0;
+}
+
+.md-content strong { font-weight: 600; color: var(--foreground); }
+.md-content em { font-style: italic; }
+.md-content code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.8em;
+  background: var(--muted);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 0.1em 0.35em;
+  color: var(--destructive);
+}
+
+.md-content pre {
+  background: #1f2937;
+  color: #e5e7eb;
+  border-radius: 8px;
+  padding: 0.9em 1em;
+  margin: 0.7em 0;
+  overflow-x: auto;
+  font-size: 0.8rem;
+  line-height: 1.55;
+}
+.md-content pre code {
+  background: transparent;
+  border: none;
+  padding: 0;
+  color: inherit;
+  font-size: inherit;
+}
+
+.md-content table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 0.7em 0;
+  font-size: 0.82rem;
+}
+.md-content th,
+.md-content td {
+  border: 1px solid var(--border);
+  padding: 0.45em 0.7em;
+  text-align: left;
+  vertical-align: top;
+}
+.md-content th {
+  background: var(--muted);
+  font-weight: 600;
+  color: var(--foreground);
+  white-space: nowrap;
+}
+.md-content tbody tr:nth-child(even) {
+  background: var(--muted);
+}
+
+.md-content blockquote {
+  margin: 0.7em 0;
+  padding: 0.3em 1em;
+  border-left: 3px solid var(--border);
+  color: var(--muted-foreground);
+  background: var(--muted);
+  border-radius: 0 6px 6px 0;
+}
+
+.md-content hr {
+  border: none;
+  border-top: 1px solid var(--border);
+  margin: 1.2em 0;
+}
+
+.md-content a {
+  color: var(--primary);
+  text-decoration: none;
+}
+.md-content a:hover {
+  text-decoration: underline;
+}
+
+/* ── 全局滚动条（shadcn 风格：细、圆角、随主题）── */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in oklch, var(--foreground) 20%, transparent) transparent;
+}
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background-color: color-mix(in oklch, var(--foreground) 18%, transparent);
+  border-radius: 9999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background-color: color-mix(in oklch, var(--foreground) 32%, transparent);
+}

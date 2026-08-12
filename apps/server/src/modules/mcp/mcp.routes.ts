@@ -7,6 +7,8 @@ import {
   testConnection,
   setMcpEnabled,
   deleteMcpServer,
+  listMcpTools,
+  callMcpTool,
   type CreateMcpServerInput,
 } from "./mcp.service.js";
 
@@ -65,6 +67,25 @@ export function registerMcpRoutes(app: FastifyInstance): void {
       }
       await setMcpEnabled(request.params.id, user.username, request.body.enabled);
       return { ok: true };
+    }
+  );
+
+  // 当前用户可用 MCP 工具列表（供客户端本地 agent 注册工具）
+  app.get("/api/mcp/tools", async (request) => {
+    return listMcpTools(request.authUser!.username);
+  });
+
+  // 执行 MCP 工具（客户端本地 agent 经服务器调用，规避客户端无法直连外网/内网 MCP）
+  app.post<{ Body: { toolName?: string; args?: Record<string, unknown> } }>(
+    "/api/mcp/tools/call",
+    async (request, reply) => {
+      const user = request.authUser!;
+      try {
+        return await callMcpTool(user.username, request.body?.toolName ?? "", request.body?.args ?? {});
+      } catch (e) {
+        reply.code(400).send({ error: (e as Error).message });
+        return;
+      }
     }
   );
 

@@ -35,14 +35,15 @@ model Message {
 }
 
 model Skill {
-  id          String   @id
-  name        String
-  description String   @default("")
-  category    String   @default("custom")
-  owner       String   @default("")
-  enabled     Boolean  @default(true)
-  isCustom    Boolean  @default(false)
-  createdAt   DateTime @default(now()) @map("created_at")
+  id             String   @id
+  name           String
+  description    String   @default("")
+  category       String   @default("custom")
+  owner          String   @default("")
+  enabled        Boolean  @default(true)
+  isCustom       Boolean  @default(false)
+  canSyncToLocal Boolean  @default(true) // 是否可同步到本地（涉密技能=false，内容不下发，仅服务器执行）
+  createdAt      DateTime @default(now()) @map("created_at")
 
   @@index([owner, enabled])
 }

@@ -17,7 +17,7 @@ function resolvePython(): string {
 }
 
 // 限定在 data 目录内解析路径，防路径穿越
-function safeResolve(cwd: string, script: string): string {
+export function safeResolve(cwd: string, script: string): string {
   const dataRoot = resolve(config.dataDir);
   const full = resolve(join(dataRoot, cwd, script));
   const rel = relative(dataRoot, full);
@@ -28,7 +28,7 @@ function safeResolve(cwd: string, script: string): string {
 }
 
 // 运行 Python：统一执行器（AST 安全检查 + 内存监控 + 超时）
-async function runPython(
+export async function runPython(
   pythonArgs: string[],
   cwd: string,
   opts: { timeout: number; maxMemoryMb: number }

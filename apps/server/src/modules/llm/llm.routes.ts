@@ -9,7 +9,9 @@ import {
   setGlobalDefault,
   resetDefaultProvider,
   testProvider,
+  getActiveProvider,
 } from "./llm.service.js";
+import { decryptKey } from "./llm.crypto.js";
 import type { LlmProviderInput } from "@br-agent/shared";
 
 export function registerLlmRoutes(app: FastifyInstance): void {
@@ -90,6 +92,17 @@ export function registerLlmRoutes(app: FastifyInstance): void {
       reply.code(code).send({ error: (e as Error).message });
       return;
     }
+  });
+
+  // 当前活动模型配置（含明文 apiKey，供桌面客户端本地创建 ChatOpenAI）
+  app.get("/api/llm/providers/active-key", async (request, reply) => {
+    const user = request.authUser!;
+    const active = await getActiveProvider(user.username);
+    if (!active) {
+      reply.code(404).send({ error: "未配置可用模型" });
+      return;
+    }
+    return { model: active.model, baseUrl: active.baseUrl, apiKey: decryptKey(active.apiKeyEnc) };
   });
 
   // 连接测试

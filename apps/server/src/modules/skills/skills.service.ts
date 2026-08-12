@@ -4,6 +4,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync, readdirSync, statSy
 import AdmZip from "adm-zip";
 import { prisma } from "../../db/index.js";
 import { loadConfig } from "../../config.js";
+import { runPython, safeResolve } from "../../agent/tools.js";
 import type { SkillDto } from "@br-agent/shared";
 
 const config = loadConfig();
@@ -48,8 +49,54 @@ export async function listSkills(owner: string): Promise<SkillDto[]> {
     owner: s.owner,
     enabled: s.enabled,
     isCustom: s.isCustom,
+    scripts: listSkillScripts(skillDir(s.owner, s.id)),
     createdAt: s.createdAt.toISOString(),
   }));
+}
+
+/** 列出技能 scripts/ 目录下的可执行 Python 脚本（供客户端注册工具；涉密技能同样只给脚本名） */
+function listSkillScripts(dir: string): string[] {
+  const scriptsDir = join(dir, "scripts");
+  if (!existsSync(scriptsDir)) return [];
+  try {
+    return readdirSync(scriptsDir).filter((f) => f.endsWith(".py")).sort();
+  } catch {
+    return [];
+  }
+}
+
+/** 下载技能压缩包（公开/自己的私有；供客户端同步到本地） */
+export async function downloadSkillZip(owner: string, id: string): Promise<{ name: string; zip: string }> {
+  const skill = await prisma.skill.findFirst({ where: { id, OR: [{ owner: "" }, { owner }] } });
+  if (!skill) throw new Error("技能不存在或无权限");
+  const dir = skillDir(skill.owner, id);
+  if (!existsSync(dir)) throw new Error("技能文件不存在");
+  const zip = new AdmZip();
+  zip.addLocalFolder(dir);
+  return { name: skill.name, zip: zip.toBuffer().toString("base64") };
+}
+
+/** 服务器执行技能脚本（web 端备用；客户端已改为本地执行） */
+export async function executeSkill(
+  owner: string,
+  id: string,
+  script: string,
+  args: string[] = [],
+  input = ""
+): Promise<{ exitCode?: unknown; stdout?: string; stderr?: string; error?: string }> {
+  const skill = await prisma.skill.findFirst({ where: { id, OR: [{ owner: "" }, { owner }] } });
+  if (!skill) throw new Error("技能不存在或无权限");
+  const dir = skillDir(skill.owner, id);
+  const relDir = relative(config.dataDir, dir).replace(/\\/g, "/");
+  // 脚本在 scripts/ 子目录下（listSkillScripts 返回的就是其中的文件名）
+  const scriptPath = safeResolve(join(relDir, "scripts"), script);
+  if (!existsSync(scriptPath)) return { error: `脚本不存在：${script}` };
+  const raw = await runPython([scriptPath, ...args], dir, { timeout: 60, maxMemoryMb: 256 });
+  try {
+    return JSON.parse(raw) as { exitCode?: unknown; stdout?: string; stderr?: string };
+  } catch {
+    return { stdout: raw };
+  }
 }
 
 export async function installSkill(owner: string, zipBuffer: Buffer, isPublic = false): Promise<SkillDto> {
@@ -130,6 +177,7 @@ export async function installSkill(owner: string, zipBuffer: Buffer, isPublic = 
     owner: skill.owner,
     enabled: skill.enabled,
     isCustom: skill.isCustom,
+    scripts: listSkillScripts(skillDir(skill.owner, skill.id)),
     createdAt: skill.createdAt.toISOString(),
   };
 }

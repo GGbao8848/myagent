@@ -128,6 +128,7 @@ export async function handleCallback(code: string): Promise<void> {
   if (data.refresh_token) localStorage.setItem(REFRESH_KEY, data.refresh_token);
   if (data.id_token) localStorage.setItem(ID_TOKEN_KEY, data.id_token);
   sessionStorage.removeItem("kc_verifier");
+  syncTokenToDesktop();
 }
 
 /** 用 refresh token 续期 */
@@ -149,6 +150,7 @@ export async function refreshAccessToken(): Promise<boolean> {
     localStorage.setItem(TOKEN_KEY, data.access_token);
     if (data.refresh_token) localStorage.setItem(REFRESH_KEY, data.refresh_token);
     if (data.id_token) localStorage.setItem(ID_TOKEN_KEY, data.id_token);
+    syncTokenToDesktop();
     return true;
   } catch {
     return false;
@@ -160,6 +162,8 @@ export function clearTokens(): void {
   localStorage.removeItem(TOKEN_KEY);
   localStorage.removeItem(REFRESH_KEY);
   localStorage.removeItem(ID_TOKEN_KEY);
+  // 通知桌面客户端主进程断开本机能力网关（纯浏览器忽略）
+  window.desktopAPI?.syncToken("", "").catch(() => {});
 }
 
 /** 会话过期事件：App 监听后切回登录页 */
@@ -205,5 +209,13 @@ export function getIsAdmin(): boolean {
     return roles.includes("admin");
   } catch {
     return false;
+  }
+}
+
+/** 桌面客户端桥：把 access_token 同步给 Electron 主进程（供本机能力网关连后端 WS）；纯浏览器无 window.desktopAPI 则跳过 */
+function syncTokenToDesktop(): void {
+  const { access } = getTokens();
+  if (window.desktopAPI?.syncToken) {
+    window.desktopAPI.syncToken(access ?? "", "").catch(() => {});
   }
 }

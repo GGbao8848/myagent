@@ -1,12 +1,16 @@
 // 根组件：登录态判断 + 视图切换
 import { useEffect, useState } from "react";
-import { MessagesSquare, FolderKanban, Plug, Cpu, LogOut, Bot, type LucideIcon } from "lucide-react";
+import { MessagesSquare, FolderKanban, Plug, Cpu, LogOut, Bot, Settings, type LucideIcon } from "lucide-react";
 import { isAuthenticated, handleCallback, login, logout, getUserName, SESSION_EXPIRED_EVENT } from "./auth";
 import DialogueView from "./views/DialogueView";
 import SkillsView from "./views/SkillsView";
 import McpView from "./views/McpView";
 import LlmView from "./views/LlmView";
 import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { toast } from "sonner";
 import type { MessageDto } from "@br-agent/shared";
 
 type View = "dialogue" | "skills" | "mcp" | "llm";
@@ -22,6 +26,7 @@ export default function App() {
   const [authed, setAuthed] = useState<boolean | null>(null);
   const [view, setView] = useState<View>("dialogue");
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
+  const [showSettings, setShowSettings] = useState(false);
 
   useEffect(() => {
     // 处理 Keycloak 回调（URL 带 code）。
@@ -110,7 +115,17 @@ export default function App() {
             );
           })}
         </nav>
-        <div className="p-3 border-t border-border">
+        <div className="p-3 border-t border-border space-y-1">
+          {window.desktopAPI && (
+            <Button
+              variant="ghost"
+              onClick={() => setShowSettings(true)}
+              className="w-full justify-start gap-2 text-muted-foreground"
+            >
+              <Settings className="size-4" />
+              连接设置
+            </Button>
+          )}
           <Button
             variant="ghost"
             onClick={() => logout()}
@@ -137,7 +152,65 @@ export default function App() {
           <LlmView />
         </div>
       </main>
+
+      {/* 桌面客户端：服务器连接设置（纯浏览器不显示） */}
+      {showSettings && window.desktopAPI && <SettingsDialog onClose={() => setShowSettings(false)} />}
     </div>
+  );
+}
+
+/** 桌面客户端连接设置：修改 BR-Agent 服务器地址（经 desktopAPI 交给主进程保存并重连） */
+function SettingsDialog({ onClose }: { onClose: () => void }) {
+  const [serverUrl, setServerUrl] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    window.desktopAPI
+      ?.getSettings()
+      .then((s) => setServerUrl(s.serverUrl ?? ""))
+      .catch(() => {});
+  }, []);
+
+  const save = async () => {
+    setSaving(true);
+    try {
+      const r = await window.desktopAPI!.saveSettings({ serverUrl });
+      if (r.ok) {
+        toast.success("已保存，正在连接新服务器…");
+        onClose();
+      } else {
+        toast.error(r.error || "保存失败");
+      }
+    } catch (e) {
+      toast.error((e as Error).message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <Dialog open onOpenChange={(o) => { if (!o) onClose(); }}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle>连接设置</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-3">
+          <div>
+            <Label className="!block text-xs text-muted-foreground mb-1">服务器地址</Label>
+            <Input
+              value={serverUrl}
+              onChange={(e) => setServerUrl(e.target.value)}
+              placeholder="http://192.168.1.100:9005"
+            />
+          </div>
+          <p className="text-xs text-muted-foreground">修改后客户端将重新连接该服务器的界面与本机能力网关。</p>
+        </div>
+        <DialogFooter className="mt-4">
+          <Button variant="outline" onClick={onClose}>取消</Button>
+          <Button onClick={save} disabled={saving}>{saving ? "保存中…" : "保存并连接"}</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 

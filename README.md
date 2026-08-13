@@ -48,7 +48,8 @@ npx electron .       # 本地 Agent 客户端
 | PostgreSQL | localhost:5432 | 业务数据（库 br_agent） |
 | Keycloak | 127.0.0.1:6543 | SSO 认证（realm br-platform） |
 | vLLM | 10.10.10.146:8000 | 内网对话模型 |
+| agent-runtime（MCP） | 127.0.0.1:18544 | 桌面客户端本机执行运行时（源码见 [agent-runtime/](agent-runtime/)），BR-Agent 经服务器代理调用其 `mcp_local_*` 工具（白名单 + 审计日志） |
 
 ## 文档
 
-详见 [docs/](docs/)：系统架构、局域网部署、部署指南、桌面客户端说明、服务启动排障、MCP 复用迁移指南、UI 组件设计。
+详见 [docs/](docs/)：系统架构、局域网部署、部署指南、桌面客户端说明、服务启动排障、MCP 复用迁移指南、UI 组件设计、[Agent×MCP 联调排障记录](docs/agent-mcp-联调排障记录.md)（本机执行链路问题与修复实战）。

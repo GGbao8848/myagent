@@ -1,0 +1,17 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+build/
+dist/
+*.spec
+
+# 本地配置与日志
+config.yaml
+*.log
+logs/
+
+# 打包产物
+packaging/output/
+nssm*.exe

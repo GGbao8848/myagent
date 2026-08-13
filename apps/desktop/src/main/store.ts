@@ -1,5 +1,8 @@
 // 本地设置：服务器地址等
 import { app } from "electron";
+
+/** 打包时默认服务器地址（按部署修改后重新打包；客户端零配置，不依赖资源文件） */
+export const DEFAULT_SERVER_URL = "http://10.1.20.132:9005";
 import { join } from "node:path";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import type { DesktopSettings } from "@br-agent/shared";

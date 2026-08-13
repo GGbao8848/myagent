@@ -2,7 +2,7 @@
 import { BrowserWindow, ipcMain } from "electron";
 import { loginWithKeycloak } from "./auth.js";
 import { apiClient } from "./api.js";
-import { readPresetServerUrl, settingsStore } from "./store.js";
+import { DEFAULT_SERVER_URL, readPresetServerUrl, settingsStore } from "./store.js";
 import { tokenStore } from "./token-store.js";
 import { parseServerUrl } from "./url.js";
 import { LocalAgentEngine, type SecurityMode } from "./agent/engine.js";
@@ -14,8 +14,8 @@ export function setAgentEngine(engine: LocalAgentEngine): void {
 
 export function setupIpcHandlers(getMainWindow: () => BrowserWindow | null): void {
   ipcMain.handle("auth:login", async () => {
-    const serverUrl = settingsStore.get().serverUrl || "";
-    if (!serverUrl) return { ok: false, error: "未配置服务器地址" };
+    // 服务器地址打包时硬编码（DEFAULT_SERVER_URL），客户端零配置
+    const serverUrl = settingsStore.get().serverUrl || DEFAULT_SERVER_URL;
     const tokens = await loginWithKeycloak(serverUrl);
     apiClient.setTokens(tokens.access, tokens.refresh);
     tokenStore.save(tokens);
@@ -46,7 +46,7 @@ export function setupIpcHandlers(getMainWindow: () => BrowserWindow | null): voi
 
   ipcMain.handle("settings:get", () => {
     const s = settingsStore.get();
-    if (!s.serverUrl) s.serverUrl = readPresetServerUrl() || undefined;
+    if (!s.serverUrl) s.serverUrl = readPresetServerUrl() || DEFAULT_SERVER_URL || undefined;
     return s;
   });
 

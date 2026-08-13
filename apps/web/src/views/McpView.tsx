@@ -180,6 +180,11 @@ export default function McpView() {
                                   <div key={t.name} className="text-xs">
                                     <span className="font-mono font-medium text-foreground">{t.name}</span>
                                     {t.description ? <p className="text-muted-foreground mt-0.5 line-clamp-2">{t.description}</p> : null}
+                                    {t.schema ? (
+                                      <pre className="mt-1 text-[10px] bg-muted rounded p-1.5 overflow-x-auto max-h-32">
+                                        {JSON.stringify(t.schema, null, 1)}
+                                      </pre>
+                                    ) : null}
                                   </div>
                                 ))}
                               </div>

@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { setupIpcHandlers, setAgentEngine } from "./ipc.js";
 import { LocalAgentEngine } from "./agent/engine.js";
 import { apiClient } from "./api.js";
-import { readPresetServerUrl, settingsStore } from "./store.js";
+import { DEFAULT_SERVER_URL, readPresetServerUrl, settingsStore } from "./store.js";
 import { tokenStore } from "./token-store.js";
 
 let mainWindow: BrowserWindow | null = null;
@@ -41,7 +41,12 @@ function createWindow(): void {
 
 app.whenReady().then(() => {
   // 初始化服务器地址（用户配置 → 打包预设 → 环境变量）与持久化 token
-  const serverUrl = settingsStore.get().serverUrl || readPresetServerUrl() || (process.env.BR_SERVER_URL || "");
+  let serverUrl =
+    settingsStore.get().serverUrl || readPresetServerUrl() || DEFAULT_SERVER_URL || (process.env.BR_SERVER_URL || "");
+  if (serverUrl && !settingsStore.get().serverUrl) {
+    // 首启：把预设地址固化到本地 settings，避免依赖每次读 resources 文件
+    settingsStore.save({ serverUrl });
+  }
   if (serverUrl) {
     apiClient.setServerUrl(serverUrl);
     const tokens = tokenStore.load();

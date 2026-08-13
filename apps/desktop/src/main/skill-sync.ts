@@ -1,7 +1,7 @@
 // 技能本地化：从服务器同步公开 skill 到客户端本地 skills 目录，并提供本地 Python 执行
 import { app } from "electron";
 import { join } from "node:path";
-import { mkdirSync, existsSync } from "node:fs";
+import { mkdirSync, existsSync, readFileSync } from "node:fs";
 import { spawn } from "node:child_process";
 import AdmZip from "adm-zip";
 import { apiClient } from "./api.js";
@@ -12,6 +12,7 @@ export interface LocalSkill {
   name: string;
   description: string;
   scripts: string[];
+  skilMd: string; // SKILL.md 内容（注入 systemPrompt 引导 agent 正确使用技能）
 }
 
 function localSkillsRoot(): string {
@@ -32,7 +33,9 @@ export async function syncSkillsToLocal(): Promise<LocalSkill[]> {
       mkdirSync(target, { recursive: true });
       const zip = new AdmZip(Buffer.from(dl.zip, "base64"));
       zip.extractAllTo(target, true);
-      result.push({ id: s.id, name: s.name, description: s.description, scripts: s.scripts ?? [] });
+      const mdPath = join(target, "SKILL.md");
+      const skilMd = existsSync(mdPath) ? readFileSync(mdPath, "utf-8") : "";
+      result.push({ id: s.id, name: s.name, description: s.description, scripts: s.scripts ?? [], skilMd });
     } catch {
       // 单个技能同步失败跳过，不影响其他
     }
@@ -48,10 +51,20 @@ function pythonCmd(): string {
 
 /** 本地执行 skill 脚本（用打包/系统 Python；脚本在本地 skills 目录） */
 export function runLocalSkillScript(skillId: string, script: string, args: string[]): Promise<string> {
-  const scriptPath = join(localSkillsRoot(), skillId, "scripts", script);
+  const scriptsDir = join(localSkillsRoot(), skillId, "scripts");
+  const scriptPath = join(scriptsDir, script);
   return new Promise<string>((resolve) => {
-    // PYTHONUTF8=1 强制 Python 用 UTF-8 输出，避免 Windows 默认 GBK 导致 agent 读成乱码
-    const proc = spawn(pythonCmd(), [scriptPath, ...args], {
+    // embed Python 的 ._pth 不自动加脚本目录 → 用 wrapper 注入 sys.path（脚本间 from config import 等）
+    // 系统 Python 则直接跑（其 sys.path[0] 自动为脚本目录）
+    const bundled = join(process.resourcesPath, "python", "python.exe");
+    const useBundled = existsSync(bundled);
+    const python = useBundled ? bundled : "python";
+    const pyArgs = useBundled
+      ? [join(process.resourcesPath, "python", "run_skill.py"), scriptsDir, scriptPath, ...args]
+      : [scriptPath, ...args];
+    // PYTHONUTF8 强制 UTF-8 输出（防 GBK 乱码）；cwd 设为脚本目录（相对文件读取正确）
+    const proc = spawn(python, pyArgs, {
+      cwd: scriptsDir,
       windowsHide: true,
       env: { ...process.env, PYTHONUTF8: "1", PYTHONIOENCODING: "utf-8" },
     });

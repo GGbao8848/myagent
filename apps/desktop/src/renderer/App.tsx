@@ -1,8 +1,8 @@
 // 根组件：登录门 + 侧边栏导航（对话/技能/MCP/模型配置，与 web 端一致）
+// 服务器地址在打包时硬编码（DEFAULT_SERVER_URL），客户端零配置，无「连接设置」入口
 import { useCallback, useEffect, useState } from "react";
-import { Bot, Cpu, FolderKanban, LogOut, MessagesSquare, Plug, Settings, type LucideIcon } from "lucide-react";
+import { Bot, Cpu, FolderKanban, LogOut, MessagesSquare, Plug, type LucideIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { SettingsDialog } from "./components/SettingsDialog";
 import { ToolConfirmDialog } from "./components/ToolConfirmDialog";
 import DialogueView from "./views/DialogueView";
 import SkillsView from "./views/SkillsView";
@@ -22,9 +22,7 @@ const navItems: Array<{ key: View; label: string; icon: LucideIcon }> = [
 export default function App() {
   const [authed, setAuthed] = useState<boolean | null>(null);
   const [username, setUsername] = useState("");
-  const [settings, setSettings] = useState<{ serverUrl?: string }>({});
   const [loggingIn, setLoggingIn] = useState(false);
-  const [showSettings, setShowSettings] = useState(false);
   const [view, setView] = useState<View>("dialogue");
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
 
@@ -32,8 +30,6 @@ export default function App() {
     const api = window.electronAPI;
     if (!api) return;
     try {
-      const s = (await api.getSettings()) as { serverUrl?: string };
-      setSettings(s);
       const st = await api.authStatus();
       setAuthed(st.ok);
       setUsername(st.username);
@@ -84,15 +80,7 @@ export default function App() {
             <Bot className="size-8 text-primary" />
             <h1 className="text-xl font-semibold text-foreground">BR-Agent</h1>
           </div>
-          {!settings.serverUrl && (
-            <div className="text-sm text-muted-foreground space-y-2">
-              <p>尚未配置服务器地址</p>
-              <Button variant="outline" size="sm" onClick={() => setShowSettings(true)}>
-                连接设置
-              </Button>
-            </div>
-          )}
-          <Button size="lg" onClick={login} disabled={loggingIn || !settings.serverUrl}>
+          <Button size="lg" onClick={login} disabled={loggingIn}>
             {loggingIn ? "登录中…" : "使用企业账号登录"}
           </Button>
         </div>
@@ -130,15 +118,7 @@ export default function App() {
             );
           })}
         </nav>
-        <div className="p-3 border-t border-border space-y-1">
-          <Button
-            variant="ghost"
-            onClick={() => setShowSettings(true)}
-            className="w-full justify-start gap-2 text-muted-foreground"
-          >
-            <Settings className="size-4" />
-            连接设置
-          </Button>
+        <div className="p-3 border-t border-border">
           <Button
             variant="ghost"
             onClick={logout}
@@ -167,7 +147,6 @@ export default function App() {
       </main>
 
       <ToolConfirmDialog />
-      {showSettings && <SettingsDialog onClose={() => setShowSettings(false)} />}
     </div>
   );
 }

@@ -41,9 +41,12 @@ export default function App() {
 
   useEffect(() => {
     void checkAuth();
-    const off = window.electronAPI?.onTokenExpired(() => setAuthed(false));
+    const off1 = window.electronAPI?.onTokenExpired(() => setAuthed(false));
+    // 单点登出：web/aimemory 端登出 → Keycloak back-channel → 本端自动退出
+    const off2 = window.electronAPI?.onRemoteLogout(() => setAuthed(false));
     return () => {
-      off?.();
+      off1?.();
+      off2?.();
     };
   }, [checkAuth]);
 

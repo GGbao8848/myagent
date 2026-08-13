@@ -1,0 +1,22 @@
+<!doctype html>
+<!-- 单点登出（SLO）着陆页：Keycloak front-channel logout 以 iframe 加载本页，
+     清除 BR-Agent Web 本地 token，实现「在他端登出 → 本应用也退出」。
+     必须返回 200（iframe 要求），无可见内容。 -->
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <title>正在退出登录…</title>
+</head>
+<body>
+  <script>
+    (function () {
+      // 清除本地 token（与 apps/web/src/auth.ts 的存储键一致）
+      var keys = ["kc_access_token", "kc_refresh_token", "kc_id_token"];
+      keys.forEach(function (k) { try { localStorage.removeItem(k); } catch (e) {} });
+      try { sessionStorage.removeItem("kc_verifier"); } catch (e) {}
+      // 通知应用切回登录页（iframe 内 localStorage 与主页面共享，事件可被主页面捕获）
+      try { window.dispatchEvent(new Event("br-agent:session-expired")); } catch (e) {}
+    })();
+  </script>
+</body>
+</html>

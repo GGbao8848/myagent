@@ -116,3 +116,16 @@ export function resolveInvocation(callId: string, result?: unknown, error?: stri
   if (error) p.reject(new Error(error));
   else p.resolve(result);
 }
+
+/** 向所有已连接桌面客户端广播登出通知（Keycloak back-channel logout 触发，单点登出用） */
+export function broadcastLogout(): void {
+  for (const byUser of sessions.values()) {
+    for (const session of byUser.values()) {
+      try {
+        send(session.ws, { type: "logout" });
+      } catch {
+        /* 单个客户端发送失败不影响其他 */
+      }
+    }
+  }
+}

@@ -1,9 +1,10 @@
 // IPC handlers：认证、REST 代理、设置
 import { BrowserWindow, ipcMain } from "electron";
-import { loginWithKeycloak } from "./auth.js";
+import { loginWithKeycloak, logoutFromKeycloak } from "./auth.js";
 import { apiClient } from "./api.js";
 import { DEFAULT_SERVER_URL, readPresetServerUrl, settingsStore } from "./store.js";
 import { tokenStore } from "./token-store.js";
+import { startSloWatcher, stopSloWatcher } from "./slo-ws.js";
 import { parseServerUrl } from "./url.js";
 import { LocalAgentEngine, type SecurityMode } from "./agent/engine.js";
 
@@ -18,13 +19,19 @@ export function setupIpcHandlers(getMainWindow: () => BrowserWindow | null): voi
     const serverUrl = settingsStore.get().serverUrl || DEFAULT_SERVER_URL;
     const tokens = await loginWithKeycloak(serverUrl);
     apiClient.setTokens(tokens.access, tokens.refresh);
-    tokenStore.save(tokens);
+    tokenStore.save({ access: tokens.access, refresh: tokens.refresh, idToken: tokens.idToken });
+    startSloWatcher();
     return { ok: true };
   });
 
-  ipcMain.handle("auth:logout", () => {
+  ipcMain.handle("auth:logout", async () => {
+    const serverUrl = settingsStore.get().serverUrl || DEFAULT_SERVER_URL;
+    const stored = tokenStore.load();
     apiClient.setTokens("", "");
     tokenStore.clear();
+    stopSloWatcher();
+    // 结束 Keycloak SSO 会话（触发 web/aimemory 的 front-channel logout 与 server 的 back-channel 广播）
+    logoutFromKeycloak(serverUrl, stored?.idToken);
     return { ok: true };
   });
 

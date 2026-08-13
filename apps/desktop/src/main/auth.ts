@@ -28,6 +28,7 @@ function base64url(buf: Buffer): string {
 export interface Tokens {
   access: string;
   refresh: string;
+  idToken?: string; // 登出时拼 end_session 的 id_token_hint
 }
 
 function exchangeCode(kc: KeycloakConfig, code: string, verifier: string, redirectUri: string): Promise<Tokens> {
@@ -43,9 +44,9 @@ function exchangeCode(kc: KeycloakConfig, code: string, verifier: string, redire
     }),
   }).then(async (resp) => {
     if (!resp.ok) throw new Error(`换取 token 失败（${resp.status}）`);
-    const data = (await resp.json()) as { access_token?: string; refresh_token?: string };
+    const data = (await resp.json()) as { access_token?: string; refresh_token?: string; id_token?: string };
     if (!data.access_token) throw new Error("换取 token 失败：缺少 access_token");
-    return { access: data.access_token, refresh: data.refresh_token ?? "" };
+    return { access: data.access_token, refresh: data.refresh_token ?? "", idToken: data.id_token ?? "" };
   });
 }
 
@@ -133,4 +134,16 @@ export async function loginWithKeycloak(serverUrl: string): Promise<Tokens> {
       }
     });
   });
+}
+
+/** 单点登出：打开 Keycloak end_session（带 id_token_hint + 回跳），触发 web/aimemory 的 front-channel logout */
+export function logoutFromKeycloak(serverUrl: string, idToken?: string): void {
+  const kc = resolveKeycloak(serverUrl);
+  const params = new URLSearchParams({
+    client_id: kc.clientId,
+    post_logout_redirect_uri: `http://127.0.0.1:${CALLBACK_PORT}/callback`,
+  });
+  if (idToken) params.set("id_token_hint", idToken);
+  const url = `${kc.issuer}/protocol/openid-connect/logout?${params}`;
+  void shell.openExternal(url);
 }

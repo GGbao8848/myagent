@@ -9,6 +9,7 @@ export interface ElectronAPI {
   stop(sessionId: string): Promise<{ ok: boolean }>;
   onAgentEvent(callback: (data: unknown) => void): () => void;
   onTokenExpired(callback: () => void): () => void;
+  onRemoteLogout(callback: () => void): () => void;
   onToolConfirm(callback: (data: unknown) => void): () => void;
   toolConfirmResponse(callId: string, approved: boolean): Promise<{ ok: boolean }>;
 }

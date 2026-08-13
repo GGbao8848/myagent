@@ -6,6 +6,7 @@ import { existsSync, readFileSync, writeFileSync } from "node:fs";
 export interface StoredTokens {
   access: string;
   refresh: string;
+  idToken?: string; // 仅用于登出时拼 Keycloak end_session 的 id_token_hint
 }
 
 function tokenPath(): string {
@@ -27,7 +28,9 @@ export const tokenStore = {
       const buf = readFileSync(tokenPath());
       const dec = safeStorage.decryptString(buf);
       const parsed = JSON.parse(dec) as Partial<StoredTokens>;
-      if (parsed && typeof parsed.access === "string") return { access: parsed.access, refresh: parsed.refresh ?? "" };
+      if (parsed && typeof parsed.access === "string") {
+        return { access: parsed.access, refresh: parsed.refresh ?? "", idToken: parsed.idToken ?? "" };
+      }
     } catch {
       // 解密失败视为无 token
     }

@@ -22,6 +22,12 @@ const electronAPI = {
     ipcRenderer.on("auth:token-expired", listener);
     return () => ipcRenderer.removeListener("auth:token-expired", listener);
   },
+  // 单点登出：其他端（web/aimemory）登出触发 Keycloak back-channel → 本端也应退出
+  onRemoteLogout: (callback: () => void) => {
+    const listener = () => callback();
+    ipcRenderer.on("auth:logout-remote", listener);
+    return () => ipcRenderer.removeListener("auth:logout-remote", listener);
+  },
   onToolConfirm: (callback: (data: unknown) => void) => {
     const listener = (_event: unknown, data: unknown) => callback(data);
     ipcRenderer.on("agent:tool:confirm", listener);

@@ -7,6 +7,8 @@ const TOKEN_KEY = "kc_access_token";
 const REFRESH_KEY = "kc_refresh_token";
 const ID_TOKEN_KEY = "kc_id_token";
 
+export { TOKEN_KEY, REFRESH_KEY, ID_TOKEN_KEY };
+
 export function getTokens(): { access: string | null; refresh: string | null } {
   return {
     access: localStorage.getItem(TOKEN_KEY),

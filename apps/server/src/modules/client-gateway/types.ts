@@ -19,4 +19,5 @@ export type ClientToServerMessage =
 export type ServerToClientMessage =
   | { type: "invoke"; callId: string; toolName: string; args: Record<string, unknown> }
   | { type: "pong" }
+  | { type: "logout" } // 单点登出：Keycloak back-channel logout 触发，客户端应清除本地 token
   | { type: "error"; callId: string; message: string };

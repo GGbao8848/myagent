@@ -6,6 +6,7 @@ import { LocalAgentEngine } from "./agent/engine.js";
 import { apiClient } from "./api.js";
 import { DEFAULT_SERVER_URL, readPresetServerUrl, settingsStore } from "./store.js";
 import { tokenStore } from "./token-store.js";
+import { setLogoutHandler, startSloWatcher } from "./slo-ws.js";
 
 let mainWindow: BrowserWindow | null = null;
 
@@ -50,11 +51,21 @@ app.whenReady().then(() => {
   if (serverUrl) {
     apiClient.setServerUrl(serverUrl);
     const tokens = tokenStore.load();
-    if (tokens) apiClient.setTokens(tokens.access, tokens.refresh);
+    if (tokens) {
+      apiClient.setTokens(tokens.access, tokens.refresh);
+      startSloWatcher(); // 已登录则监听单点登出
+    }
   }
 
   apiClient.setOnTokenExpired(() => {
     if (mainWindow) mainWindow.webContents.send("auth:token-expired");
+  });
+
+  // 单点登出：Keycloak back-channel 推送 → 清本地 token + 通知渲染层回登录页
+  setLogoutHandler(() => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send("auth:logout-remote");
+    }
   });
 
   setupIpcHandlers(() => mainWindow);

@@ -16,6 +16,16 @@ export class ApiClient {
     this.refresh = refresh;
   }
 
+  /** 当前服务器地址（SLO WebSocket 连接用） */
+  get serverUrl(): string {
+    return this.baseUrl;
+  }
+
+  /** 当前 access token（SLO WebSocket 连接用） */
+  get accessToken(): string {
+    return this.access;
+  }
+
   setOnTokenExpired(cb: () => void): void {
     this.onTokenExpired = cb;
   }

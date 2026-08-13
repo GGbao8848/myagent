@@ -61,6 +61,10 @@ function ensureCallId(id: string | undefined): string {
   return `call_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 10)}`;
 }
 
+// 超时护栏：防模型/网络异常导致请求无限挂起
+const MAX_TOTAL_MS = 5 * 60_000; // 整轮生成（多轮工具循环）总时长上限 5 分钟
+const ROUND_TIMEOUT_MS = 2 * 60_000; // 单轮模型流式调用上限 2 分钟（含思考/正文等待）
+
 export async function runAgent(opts: RunAgentOptions): Promise<RunAgentResult> {
   const model = opts.model;
   if (!model) throw new Error("runAgent: 缺少 model");
@@ -84,122 +88,164 @@ export async function runAgent(opts: RunAgentOptions): Promise<RunAgentResult> {
     ...opts.messages.map((m) => ({ role: m.role, content: m.content })),
   ];
 
-  for (let iter = 0; iter < maxIterations; iter++) {
-    if (opts.signal?.aborted) break;
+  // 内部超时控制器：跟随外部 signal（用户停止时同步中止流），超时触发时 abort 并抛明确错误
+  const internal = new AbortController();
+  let timedOut = false;
+  const onOuterAbort = () => internal.abort();
+  opts.signal?.addEventListener("abort", onOuterAbort, { once: true });
+  const startedAt = Date.now();
+  let roundTimer: ReturnType<typeof setTimeout> | null = null;
+  const roundTimeoutMsg = (ms: number) => `模型响应超时（超过 ${Math.round(ms / 1000)}s），已中止生成`;
 
-    // 调用模型并逐 chunk 流式聚合（打字机效果 + id/name 保留）
-    const stream = await bound.stream(messages as never, { signal: opts.signal } as never);
-    let acc: AIMessageChunk | null = null;
-    let reasoningSeen = false; // 出现过 reasoning_content（deepseek 类：text 即正文）
-    // qwen <think> 跨 chunk 切分状态
-    let buf = "";
-    let thinkSeen = false;
-    let boundary = -1;
-
-    for await (const chunk of stream) {
+  try {
+    for (let iter = 0; iter < maxIterations; iter++) {
       if (opts.signal?.aborted) break;
-      const c = chunk as AIMessageChunk & { additional_kwargs?: { reasoning_content?: string } };
-      acc = acc ? acc.concat(c) : c;
+      const elapsed = Date.now() - startedAt;
+      if (elapsed >= MAX_TOTAL_MS) throw new Error(`生成超时（超过 ${MAX_TOTAL_MS / 1000}s），已中止`);
 
-      // deepseek/中转站：思考在 reasoning_content，逐 chunk emit
-      const rc = c.additional_kwargs?.reasoning_content;
-      if (typeof rc === "string" && rc.trim()) {
-        reasoningSeen = true;
-        const cleaned = rc.replace(/<\/?think>/g, "");
-        if (cleaned) {
-          thinkingOut += cleaned;
-          currentThinking += cleaned;
-          await emit({ event: "thinking", content: cleaned });
+      // 本轮剩余时间取「单轮上限」与「总时长剩余」的较小者
+      const roundMs = Math.min(ROUND_TIMEOUT_MS, MAX_TOTAL_MS - elapsed);
+      timedOut = false;
+      roundTimer = setTimeout(() => {
+        timedOut = true;
+        internal.abort();
+      }, roundMs);
+
+      // 调用模型并逐 chunk 流式聚合（打字机效果 + id/name 保留）
+      let stream: AsyncIterable<AIMessageChunk>;
+      try {
+        stream = await bound.stream(messages as never, { signal: internal.signal } as never);
+      } catch (e) {
+        if (timedOut) throw new Error(roundTimeoutMsg(roundMs));
+        throw e;
+      }
+      let acc: AIMessageChunk | null = null;
+      let reasoningSeen = false; // 出现过 reasoning_content（deepseek 类：text 即正文）
+      // qwen <think> 跨 chunk 切分状态
+      let buf = "";
+      let thinkSeen = false;
+      let boundary = -1;
+
+      try {
+        for await (const chunk of stream) {
+          if (timedOut) throw new Error(roundTimeoutMsg(roundMs));
+          if (opts.signal?.aborted) break;
+          const c = chunk as AIMessageChunk & { additional_kwargs?: { reasoning_content?: string } };
+          acc = acc ? acc.concat(c) : c;
+
+          // deepseek/中转站：思考在 reasoning_content，逐 chunk emit
+          const rc = c.additional_kwargs?.reasoning_content;
+          if (typeof rc === "string" && rc.trim()) {
+            reasoningSeen = true;
+            const cleaned = rc.replace(/<\/?think>/g, "");
+            if (cleaned) {
+              thinkingOut += cleaned;
+              currentThinking += cleaned;
+              await emit({ event: "thinking", content: cleaned });
+            }
+          }
+
+          // 正文/思考：qwen 用 <think> 标签，deepseek 无标签 text 即正文
+          const ct = typeof c.content === "string" ? c.content : "";
+          if (!ct) continue;
+          buf += ct;
+          if (!thinkSeen && buf.includes("<think")) thinkSeen = true;
+          if (boundary < 0) {
+            const idx = buf.indexOf("</think>");
+            if (idx >= 0) boundary = idx + "</think>".length;
+          }
+          const chunkStart = buf.length - ct.length;
+
+          let thinkPart = "";
+          let contentPart = "";
+          if (reasoningSeen) {
+            contentPart = ct;
+          } else if (!thinkSeen) {
+            contentPart = ct;
+          } else if (boundary < 0) {
+            thinkPart = ct;
+          } else if (chunkStart >= boundary) {
+            contentPart = ct;
+          } else {
+            thinkPart = ct.slice(0, boundary - chunkStart);
+            contentPart = ct.slice(boundary - chunkStart).replace(/^\s+/, "");
+          }
+
+          if (thinkPart) {
+            const cleaned = thinkPart.replace(/<\/?think>/g, "");
+            if (cleaned) {
+              thinkingOut += cleaned;
+              currentThinking += cleaned;
+              await emit({ event: "thinking", content: cleaned });
+            }
+          }
+          if (contentPart) {
+            contentOut += contentPart;
+            await emit({ event: "content", content: contentPart });
+          }
+        }
+      } catch (e) {
+        if (timedOut) throw new Error(roundTimeoutMsg(roundMs));
+        throw e;
+      } finally {
+        if (roundTimer) {
+          clearTimeout(roundTimer);
+          roundTimer = null;
         }
       }
 
-      // 正文/思考：qwen 用 <think> 标签，deepseek 无标签 text 即正文
-      const ct = typeof c.content === "string" ? c.content : "";
-      if (!ct) continue;
-      buf += ct;
-      if (!thinkSeen && buf.includes("<think")) thinkSeen = true;
-      if (boundary < 0) {
-        const idx = buf.indexOf("</think>");
-        if (idx >= 0) boundary = idx + "</think>".length;
-      }
-      const chunkStart = buf.length - ct.length;
+      if (timedOut) throw new Error(roundTimeoutMsg(roundMs));
+      if (opts.signal?.aborted) break;
+      if (!acc) throw new Error("模型无响应");
 
-      let thinkPart = "";
-      let contentPart = "";
-      if (reasoningSeen) {
-        contentPart = ct;
-      } else if (!thinkSeen) {
-        contentPart = ct;
-      } else if (boundary < 0) {
-        thinkPart = ct;
-      } else if (chunkStart >= boundary) {
-        contentPart = ct;
-      } else {
-        thinkPart = ct.slice(0, boundary - chunkStart);
-        contentPart = ct.slice(boundary - chunkStart).replace(/^\s+/, "");
-      }
-
-      if (thinkPart) {
-        const cleaned = thinkPart.replace(/<\/?think>/g, "");
-        if (cleaned) {
-          thinkingOut += cleaned;
-          currentThinking += cleaned;
-          await emit({ event: "thinking", content: cleaned });
+      const toolCalls = acc.tool_calls ?? [];
+      if (toolCalls.length === 0) {
+        // 最终轮：无工具调用，闭合思考段
+        if (currentThinking.trim()) {
+          timeline.push({ type: "thinking", content: currentThinking.trim() });
+          currentThinking = "";
         }
+        break;
       }
-      if (contentPart) {
-        contentOut += contentPart;
-        await emit({ event: "content", content: contentPart });
-      }
-    }
 
-    if (opts.signal?.aborted) break;
-    if (!acc) throw new Error("模型无响应");
-
-    const toolCalls = acc.tool_calls ?? [];
-    if (toolCalls.length === 0) {
-      // 最终轮：无工具调用，闭合思考段
+      // 工具轮：闭合思考段，执行工具，构造下一轮消息
       if (currentThinking.trim()) {
         timeline.push({ type: "thinking", content: currentThinking.trim() });
         currentThinking = "";
       }
-      break;
-    }
+      for (const tc of toolCalls) {
+        if (opts.signal?.aborted) break;
+        const name = tc.name;
+        const id = ensureCallId(tc.id);
+        const input = (tc.args ?? {}) as Record<string, unknown>;
 
-    // 工具轮：闭合思考段，执行工具，构造下一轮消息
-    if (currentThinking.trim()) {
-      timeline.push({ type: "thinking", content: currentThinking.trim() });
-      currentThinking = "";
-    }
-    for (const tc of toolCalls) {
-      if (opts.signal?.aborted) break;
-      const name = tc.name;
-      const id = ensureCallId(tc.id);
-      const input = (tc.args ?? {}) as Record<string, unknown>;
+        await emit({ event: "tool_call", tool_name: name, args: input, id });
+        timeline.push({ type: "tool_call", name, args: input, id });
 
-      await emit({ event: "tool_call", tool_name: name, args: input, id });
-      timeline.push({ type: "tool_call", name, args: input, id });
+        let outputText: string;
+        let isError = false;
+        try {
+          const t = tools.find((x) => x.name === name);
+          if (!t) throw new Error(`工具不存在：${name}，可用工具：[${tools.map((x) => x.name).join(", ")}]`);
+          const output = await t.invoke({ ...tc, type: "tool_call" } as never);
+          // t.invoke 在带 tool_call_id 时会把字符串输出包装成 ToolMessage；解包取真实工具输出
+          outputText = ToolMessage.isInstance(output) ? String(output.content) : typeof output === "string" ? output : JSON.stringify(output ?? null);
+        } catch (e) {
+          outputText = (e as Error).message;
+          isError = true;
+        }
+        await emit({ event: "tool_result", tool_name: name, content: outputText, is_error: isError });
+        timeline.push({ type: "tool_result", name, content: outputText, isError });
 
-      let outputText: string;
-      let isError = false;
-      try {
-        const t = tools.find((x) => x.name === name);
-        if (!t) throw new Error(`工具不存在：${name}，可用工具：[${tools.map((x) => x.name).join(", ")}]`);
-        const output = await t.invoke({ ...tc, type: "tool_call" } as never);
-        // t.invoke 在带 tool_call_id 时会把字符串输出包装成 ToolMessage；解包取真实工具输出
-        outputText = ToolMessage.isInstance(output) ? String(output.content) : typeof output === "string" ? output : JSON.stringify(output ?? null);
-      } catch (e) {
-        outputText = (e as Error).message;
-        isError = true;
+        // 追加 assistant(tool_calls) + tool(result) 到历史，供下一轮模型调用
+        messages.push(new AIMessage({ content: typeof acc.content === "string" ? acc.content : "", tool_calls: [{ ...tc, id }] }));
+        messages.push(new ToolMessage({ tool_call_id: id, content: outputText, name }));
       }
-      await emit({ event: "tool_result", tool_name: name, content: outputText, is_error: isError });
-      timeline.push({ type: "tool_result", name, content: outputText, isError });
-
-      // 追加 assistant(tool_calls) + tool(result) 到历史，供下一轮模型调用
-      messages.push(new AIMessage({ content: typeof acc.content === "string" ? acc.content : "", tool_calls: [{ ...tc, id }] }));
-      messages.push(new ToolMessage({ tool_call_id: id, content: outputText, name }));
+      if (opts.signal?.aborted) break;
     }
-    if (opts.signal?.aborted) break;
+  } finally {
+    if (roundTimer) clearTimeout(roundTimer);
+    opts.signal?.removeEventListener("abort", onOuterAbort);
   }
 
   // 收尾兜底：qwen 偶发把整段回复包在 <think> 内且未闭合，content 为空时取思考最后一段

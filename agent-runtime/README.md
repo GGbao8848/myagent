@@ -109,6 +109,7 @@ Claude Desktop / Codex / Cursor 等客户端在 MCP 配置界面填入该 URL �
 |---|---|
 | [docs/配置说明.md](docs/配置说明.md) | config.yaml 全项详解、白名单变更、Python 环境约定、常见坑 |
 | [docs/安全设计.md](docs/安全设计.md) | 目录/命令白名单、参数级路径校验、引号处理、可执行文件解析、审计脱敏 |
+| [docs/能力与升级路线.md](docs/能力与升级路线.md) | 当前能力盘点（实测）与后续升级路线（P0~P4）+ 代码升级流程 |
 | [docs/部署与运维.md](docs/部署与运维.md) | 开发启动、打包、NSSM 装服务、重启、验证、审计日志解读、常见问题 |
 | [docs/agent-mcp-联调排障记录.md](../../docs/agent-mcp-联调排障记录.md) | 与 BR-Agent 联调遇到的问题与修复实战（仓库根 docs/） |
 

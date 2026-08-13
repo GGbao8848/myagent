@@ -103,6 +103,15 @@ Agent 无需安装任何 AgentRuntime 组件，只需在其 MCP 客户端配置�
 
 Claude Desktop / Codex / Cursor 等客户端在 MCP 配置界面填入该 URL 即可。
 
+## 文档
+
+| 文档 | 内容 |
+|---|---|
+| [docs/配置说明.md](docs/配置说明.md) | config.yaml 全项详解、白名单变更、Python 环境约定、常见坑 |
+| [docs/安全设计.md](docs/安全设计.md) | 目录/命令白名单、参数级路径校验、引号处理、可执行文件解析、审计脱敏 |
+| [docs/部署与运维.md](docs/部署与运维.md) | 开发启动、打包、NSSM 装服务、重启、验证、审计日志解读、常见问题 |
+| [docs/agent-mcp-联调排障记录.md](../../docs/agent-mcp-联调排障记录.md) | 与 BR-Agent 联调遇到的问题与修复实战（仓库根 docs/） |
+
 ## 打包与部署（生产）
 
 ### 方式一：手动部署（开发机到目标机）

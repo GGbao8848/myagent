@@ -68,12 +68,28 @@ export function runLocalSkillScript(skillId: string, script: string, args: strin
       windowsHide: true,
       env: { ...process.env, PYTHONUTF8: "1", PYTHONIOENCODING: "utf-8" },
     });
+    // 脚本执行超时护栏：120s 强制 kill（防脚本挂起卡死 agent 循环，与 runner 工具超时配合）
+    const TIMEOUT_MS = 120_000;
+    const timer = setTimeout(() => {
+      try {
+        proc.kill();
+      } catch {
+        /* 进程已退出忽略 */
+      }
+      resolve(JSON.stringify({ error: `脚本执行超时（>${TIMEOUT_MS / 1000}s），已终止` }));
+    }, TIMEOUT_MS);
     let stdout = "";
     let stderr = "";
     proc.stdout.on("data", (d) => (stdout += d.toString()));
     proc.stderr.on("data", (d) => (stderr += d.toString()));
-    proc.on("close", (code) => resolve(JSON.stringify({ exitCode: code, stdout, stderr })));
-    proc.on("error", (e) => resolve(JSON.stringify({ error: `本地执行失败（需本机安装 Python）：${e.message}` })));
+    proc.on("close", (code) => {
+      clearTimeout(timer);
+      resolve(JSON.stringify({ exitCode: code, stdout, stderr }));
+    });
+    proc.on("error", (e) => {
+      clearTimeout(timer);
+      resolve(JSON.stringify({ error: `本地执行失败（需本机安装 Python）：${e.message}` }));
+    });
   });
 }
 

@@ -83,12 +83,14 @@ export class LocalAgentEngine {
                 url: s.url,
                 ...(Object.keys(s.headers).length > 0 ? { headers: s.headers } : {}),
               };
-        const client = new MultiServerMCPClient({ [s.name]: conn });
+        // defaultToolTimeout：单次 MCP 工具调用超时（底层 60s 协议默认过短，显式给 120s），
+        // 与 runner 的工具超时护栏一致；工具包装时透传 config（含 timeout）不丢弃。
+        const client = new MultiServerMCPClient({ mcpServers: { [s.name]: conn }, defaultToolTimeout: 120_000 });
         try {
           const serverTools = await client.getTools();
           for (const t of serverTools) {
             mcpTools.push(
-              tool(async (args) => t.invoke(args), {
+              tool(async (args, config) => t.invoke(args, config), {
                 name: `mcp_${t.name}`,
                 description: t.description,
                 schema: (t.schema ?? z.object({}).passthrough()) as never,
@@ -121,17 +123,28 @@ export class LocalAgentEngine {
         onEvent: (evt) => this.push(sessionId, evt),
       });
 
-      // 5. 存 assistant 消息
-      await apiClient.post(`/api/sessions/${sessionId}/messages`, {
-        role: "assistant",
-        content: result.content || "(无回答)",
-        thinking: result.thinking || null,
-        timeline: result.timeline as unknown as TimelineEntry[],
-      });
+      // 5. 存 assistant 消息（用户主动停止时不落库，避免留「(无回答)」或半截内容）
+      if (!controller.signal.aborted) {
+        await apiClient.post(`/api/sessions/${sessionId}/messages`, {
+          role: "assistant",
+          content: result.content || "(无回答)",
+          thinking: result.thinking || null,
+          timeline: result.timeline as unknown as TimelineEntry[],
+        });
+      }
       this.push(sessionId, { event: "done" });
     } catch (e) {
       if (!controller.signal.aborted) {
         this.push(sessionId, { event: "error", content: (e as Error).message });
+        // 失败路径落库错误占位，与 web 端共享历史可见（避免会话只有 user 消息造成困惑）
+        try {
+          await apiClient.post(`/api/sessions/${sessionId}/messages`, {
+            role: "assistant",
+            content: `⚠️ ${(e as Error).message}`,
+          });
+        } catch {
+          /* 落库失败不再二次报错 */
+        }
       }
     } finally {
       // 关闭本轮本地 MCP 连接（下次对话重新建连，保证配置变更/服务器重启即时生效）

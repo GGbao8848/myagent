@@ -72,10 +72,12 @@ export class ApiClient {
     const headers: Record<string, string> = {};
     if (body !== undefined) headers["Content-Type"] = "application/json";
     if (this.access) headers.Authorization = `Bearer ${this.access}`;
+    // 请求超时护栏：服务器不可达/挂起时 60s 中止，避免整轮对话挂死
     const resp = await fetch(`${this.baseUrl}${path}`, {
       method,
       headers,
       body: body !== undefined ? JSON.stringify(body) : undefined,
+      signal: AbortSignal.timeout(60_000),
     });
     if (resp.status === 401 && retry && this.refresh) {
       const ok = await this.refreshAccessToken();

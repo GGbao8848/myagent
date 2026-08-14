@@ -64,6 +64,7 @@ function ensureCallId(id: string | undefined): string {
 // 超时护栏：防模型/网络异常导致请求无限挂起
 const MAX_TOTAL_MS = 5 * 60_000; // 整轮生成（多轮工具循环）总时长上限 5 分钟
 const ROUND_TIMEOUT_MS = 2 * 60_000; // 单轮模型流式调用上限 2 分钟（含思考/正文等待）
+const TOOL_TIMEOUT_MS = 2 * 60_000; // 单次工具调用上限 2 分钟（防 skill 脚本/MCP 工具挂起卡死循环）
 
 export async function runAgent(opts: RunAgentOptions): Promise<RunAgentResult> {
   const model = opts.model;
@@ -227,7 +228,14 @@ export async function runAgent(opts: RunAgentOptions): Promise<RunAgentResult> {
         try {
           const t = tools.find((x) => x.name === name);
           if (!t) throw new Error(`工具不存在：${name}，可用工具：[${tools.map((x) => x.name).join(", ")}]`);
-          const output = await t.invoke({ ...tc, type: "tool_call" } as never);
+          // 工具调用超时护栏：skill 脚本/MCP 工具挂起时 2 分钟内返回超时错误（回喂模型），
+          // 而非无限等待卡死整个 ReAct 循环；用户停止（internal abort）同样中断工具调用。
+          const output = await Promise.race([
+            t.invoke({ ...tc, type: "tool_call", signal: internal.signal } as never),
+            new Promise<never>((_, reject) =>
+              setTimeout(() => reject(new Error(`工具 ${name} 执行超时（${TOOL_TIMEOUT_MS / 1000}s）`)), TOOL_TIMEOUT_MS)
+            ),
+          ]);
           // t.invoke 在带 tool_call_id 时会把字符串输出包装成 ToolMessage；解包取真实工具输出
           outputText = ToolMessage.isInstance(output) ? String(output.content) : typeof output === "string" ? output : JSON.stringify(output ?? null);
         } catch (e) {

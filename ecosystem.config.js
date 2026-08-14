@@ -11,7 +11,6 @@ const ROOT = __dirname;
 // Node 22（nvm 管理，勿用 process.execPath——pm2 启动时可能解析到旧/删除的 node 路径）
 const NODE = "C:\\nvm4w\\nodejs\\node.exe";
 const TSX_LOADER = path.join(ROOT, "node_modules", "tsx", "dist", "loader.mjs");
-const VITE_CLI = path.join(ROOT, "node_modules", "vite", "bin", "vite.js");
 
 module.exports = {
   apps: [
@@ -28,23 +27,6 @@ module.exports = {
       restart_delay: 3000, // 重启间隔 3s
       out_file: path.join(ROOT, "logs", "server-out.log"),
       error_file: path.join(ROOT, "logs", "server-error.log"),
-      merge_logs: true,
-      time: true,
-    },
-    {
-      name: "br-agent-web",
-      cwd: path.join(ROOT, "apps", "web"),
-      script: VITE_CLI,
-      args: "preview",
-      interpreter: NODE, // 显式用 node 22 跑 vite，避免解析到已删除的旧 node
-      windowsHide: true, // Windows：隐藏 node 进程窗口（避免弹窗）
-      env: {
-        NODE_ENV: "production",
-      },
-      max_restarts: 10,
-      restart_delay: 3000,
-      out_file: path.join(ROOT, "logs", "web-out.log"),
-      error_file: path.join(ROOT, "logs", "web-error.log"),
       merge_logs: true,
       time: true,
     },

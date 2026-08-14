@@ -1,6 +1,6 @@
 # CS 架构说明（cs-only 分支）
 
-> 本分支从 main 拉出：**服务端清除 agent**（推理/对话/工具注入全部移除），服务端仅承担**数据服务 + MCP 连接代理 + 认证/单点登出**；**桌面客户端是完整的 agent**（LLM 调用、ReAct 循环、技能脚本执行全部在客户端本机），且**保持现状、不增删任何工具**；web 保留管理页、移除对话视图。
+> 本分支从 main 拉出：**服务端清除 agent**（推理/对话/工具注入全部移除），服务端仅承担**数据服务 + MCP 连接代理 + 认证/单点登出**；**桌面客户端是完整的 agent**（LLM 调用、ReAct 循环、技能脚本执行全部在客户端本机），且**保持现状、不增删任何工具**；**web 应用已整体移除**（纯 C/S：桌面客户端直连后端 9004）。
 >
 > 更新：2026-08-14
 
@@ -23,6 +23,7 @@ web 管理页（技能/MCP/模型配置/会话查看）→ 同样只调数据接
 
 - **agent 不在服务器上跑**：`/api/sessions/:id/chat`（服务端 SSE 对话）已删除，服务端没有任何 LLM 推理、工具注入、ReAct 循环。
 - **桌面客户端保持现状**：工具链 = `skill_*`（本地脚本）+ `mcp_*`/`mcp_local_*`（服务端 MCP 代理 → agent-runtime），未新增/删除任何工具。
+- **web 已整体移除**：桌面客户端直连后端 `http://<host>:9004`（`DEFAULT_SERVER_URL` / `default-settings.json` / `parseServerUrl` 均指向 9004），无 web 代理层。
 
 ## 服务端删除清单
 
@@ -36,8 +37,20 @@ web 管理页（技能/MCP/模型配置/会话查看）→ 同样只调数据接
 | `mcp.service.ts` | 删 `getEnabledMcpTools`（仅服务端 agent 注入用） |
 | `client-gateway/` | 删 `tool-adapter.ts`、`registry.ts` 的 `getClientToolsForUser` |
 | `index.ts` | 移除 `registerChatRoutes` 注册 |
-| `packages/shared` | 删 `SSEChatEvent`、`ChatRequestDto`、`ChatResponse` |
-| web | 删 `DialogueView.tsx`、`api.ts` 的 `chatStream`/`stop`、App 的对话导航与挂载 |
+| `apps/web/` | **整个应用移除**（含 DialogueView、管理页、chatStream） |
+| `ecosystem.config.js` | 移除 `br-agent-web` 进程（PM2 只剩 server） |
+| `packages/shared` | 删 `SSEChatEvent`、`ChatRequestDto`、`ChatResponse`、`DesktopAPI/DesktopMcp*` 桥类型（保留 `DesktopSettings`） |
+| `apps/desktop/src/renderer/index.d.ts` | 删 `window.desktopAPI` 全局类型（web 嵌入桌面时代的残留） |
+
+## 桌面端连接调整（CS 直连后端）
+
+| 文件 | 改动 |
+|---|---|
+| `apps/desktop/src/main/store.ts` | `DEFAULT_SERVER_URL = http://10.1.20.132:9004`（原 9005） |
+| `apps/desktop/resources/default-settings.json` | `serverUrl: http://10.1.20.132:9004` |
+| `apps/desktop/src/main/url.ts` | `parseServerUrl` 默认端口 9005→9004（直连后端，不再经 web 代理） |
+
+Keycloak：`br-agent` client 清除 `frontchannel.logout.url`（指向已删的 9005 slo-logout 页），SLO 桌面端走 back-channel（server 广播 WS）。
 
 ## 服务端保留项（桌面客户端与 web 管理页依赖）
 
@@ -57,11 +70,13 @@ web 管理页（技能/MCP/模型配置/会话查看）→ 同样只调数据接
 
 ## 验证记录
 
-- `tsc --noEmit`：server / web / desktop 三端通过
-- web 构建通过（产物缩小，对话代码已移除）
-- 桌面端未改任何代码（保持现状）
+- `tsc --noEmit`：server / desktop 通过（web 已移除）
+- server 启动正常（PM2），chat 路由已删（`/api/sessions/:id/chat` → 404）
+- 桌面端直连 9004 实测：会话列表/新建、user+assistant 消息写入（含 thinking/timeline）、会话详情、`active-key`、`mcp/tools` 全部 200 ✅
+- 桌面端代码保持现状（未增删工具）；`br-agent` client 已清 front-channel logout
 
 ## 备注
 
 - 本分支是**架构变更分支**，与 main 并行演进；后续服务端数据接口的优化在 main 上做、再合并/重拉本分支。
 - agent-runtime（MCP 本机执行，`agent-runtime/` 目录）是独立服务，不在本次删除范围——桌面端 `mcp_local_*` 仍经服务端 MCP 代理调用它。
+- web 移除后桌面端需**重新打包**（DEFAULT_SERVER_URL 已改 9004），见 `apps/desktop` 构建。

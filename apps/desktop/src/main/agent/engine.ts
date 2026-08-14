@@ -2,12 +2,14 @@
 import type { BrowserWindow } from "electron";
 import { tool } from "langchain";
 import { z } from "zod";
+import { MultiServerMCPClient, type Connection } from "@langchain/mcp-adapters";
+import type { StructuredToolInterface } from "@langchain/core/tools";
 import { runAgent, type AgentEvent } from "./runner.js";
 import { createChatModel } from "./factory.js";
 import { apiClient } from "../api.js";
 import { ConfirmQueue } from "./confirm.js";
 import { syncSkillsToLocal, runLocalSkillScript, type LocalSkill } from "../skill-sync.js";
-import type { TimelineEntry } from "@br-agent/shared";
+import type { McpServerDto, TimelineEntry } from "@br-agent/shared";
 
 export type SecurityMode = "auto" | "dangerous_confirm" | "always_confirm";
 
@@ -28,6 +30,8 @@ export class LocalAgentEngine {
     }
     const controller = new AbortController();
     this.sessions.set(sessionId, controller);
+    // 本轮本地 MCP 连接（finally 关闭）
+    const mcpClients: MultiServerMCPClient[] = [];
     try {
       // 1. 存用户消息（与 web 端共享）
       await apiClient.post(`/api/sessions/${sessionId}/messages`, { role: "user", content });
@@ -65,24 +69,38 @@ export class LocalAgentEngine {
             );
           })
         );
-      // MCP 工具（经服务器执行，复用服务器 MCP 连接；客户端无需直连外网/内网 MCP）
-      const mcpToolsInfo = await apiClient.get<Array<{ name: string; description: string; schema?: unknown }>>(
-        "/api/mcp/tools"
-      );
-      const mcpTools = mcpToolsInfo.map((mt) =>
-        tool(
-          async (args: Record<string, unknown>) => {
-            const r = await apiClient.post<unknown>("/api/mcp/tools/call", { toolName: mt.name, args });
-            return JSON.stringify(r);
-          },
-          {
-            name: `mcp_${mt.name}`,
-            // 把参数 schema 放进描述，让 LLM 知道必填参数（如 search_memories 需要 query）
-            description: `${mt.description}\n参数说明: ${JSON.stringify(mt.schema ?? {})}`,
-            schema: z.object({}).passthrough(),
+      // MCP 工具（客户端本地直连：拉取服务端配置清单 → 本地建 MCP 连接 → 注册 mcp_* 工具；
+      // 服务端只做配置下发，不再代理执行。某服务器连不上则跳过该服务器，不阻断对话）
+      const mcpServerList = await apiClient.get<McpServerDto[]>("/api/mcp/servers");
+      const mcpTools: StructuredToolInterface[] = [];
+      for (const s of mcpServerList) {
+        if (!s.enabled) continue;
+        const conn: Connection =
+          s.type === "stdio"
+            ? { type: "stdio", command: s.command, args: s.args }
+            : {
+                type: (s.type === "sse" ? "sse" : "http") as "http" | "sse",
+                url: s.url,
+                ...(Object.keys(s.headers).length > 0 ? { headers: s.headers } : {}),
+              };
+        const client = new MultiServerMCPClient({ [s.name]: conn });
+        try {
+          const serverTools = await client.getTools();
+          for (const t of serverTools) {
+            mcpTools.push(
+              tool(async (args) => t.invoke(args), {
+                name: `mcp_${t.name}`,
+                description: t.description,
+                schema: (t.schema ?? z.object({}).passthrough()) as never,
+              })
+            );
           }
-        )
-      );
+          mcpClients.push(client);
+        } catch (e) {
+          console.error(`[mcp] 服务器 ${s.name} 本地直连失败:`, (e as Error).message);
+          client.close().catch(() => {});
+        }
+      }
       const tools = [...skillTools, ...mcpTools];
       // SKILL.md 引导：把各技能的 SKILL.md 注入 systemPrompt，让 agent 知道正确入口/流程（如报工用 report.py）
       const skillPrompt = localSkills
@@ -116,6 +134,8 @@ export class LocalAgentEngine {
         this.push(sessionId, { event: "error", content: (e as Error).message });
       }
     } finally {
+      // 关闭本轮本地 MCP 连接（下次对话重新建连，保证配置变更/服务器重启即时生效）
+      for (const c of mcpClients) c.close().catch(() => {});
       this.sessions.delete(sessionId);
     }
   }

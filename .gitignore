@@ -56,4 +56,4 @@ coverage/
 .playwright-mcp/
 
 # ── 编辑器产物 ──
-*.tsbuildinfo
+*.tsbuildinfo.zcode/

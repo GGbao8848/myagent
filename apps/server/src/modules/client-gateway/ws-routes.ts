@@ -1,13 +1,9 @@
-// 客户端能力网关：WebSocket 路由（桌面客户端连接入口）
+// 客户端能力网关：WebSocket 路由（CS 模式精简版——仅桌面客户端单点登出用）
+// 桌面客户端常驻连接：发 ping 保活、收 logout 广播（Keycloak back-channel logout 触发时）。
 import type { FastifyInstance } from "fastify";
 import websocket from "@fastify/websocket";
 import { verifyToken } from "../../auth/jwt.js";
-import {
-  registerClient,
-  unregisterClient,
-  resolveInvocation,
-  rejectUserClientPending,
-} from "./registry.js";
+import { addClient, removeClient } from "./registry.js";
 import type { ClientToServerMessage, ServerToClientMessage } from "./types.js";
 
 export async function registerClientGatewayRoutes(app: FastifyInstance): Promise<void> {
@@ -31,8 +27,9 @@ export async function registerClientGatewayRoutes(app: FastifyInstance): Promise
         return;
       }
     }
-    const username = user.username;
-    let clientId: string | null = null;
+
+    addClient(socket);
+    socket.on("close", () => removeClient(socket));
 
     socket.on("message", (raw) => {
       let msg: ClientToServerMessage;
@@ -46,13 +43,6 @@ export async function registerClientGatewayRoutes(app: FastifyInstance): Promise
       }
       try {
         switch (msg.type) {
-          case "register":
-            clientId = msg.clientId;
-            registerClient(username, clientId, socket, msg.tools);
-            break;
-          case "invoke_result":
-            resolveInvocation(msg.callId, msg.result, msg.error);
-            break;
           case "ping":
             socket.send(JSON.stringify({ type: "pong" } satisfies ServerToClientMessage));
             break;
@@ -61,13 +51,6 @@ export async function registerClientGatewayRoutes(app: FastifyInstance): Promise
         socket.send(
           JSON.stringify({ type: "error", callId: "", message: (e as Error).message } satisfies ServerToClientMessage)
         );
-      }
-    });
-
-    socket.on("close", () => {
-      if (clientId) {
-        rejectUserClientPending(username, clientId);
-        unregisterClient(username, clientId);
       }
     });
   });

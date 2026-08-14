@@ -57,3 +57,4 @@ coverage/
 
 # ── 编辑器产物 ──
 *.tsbuildinfo.zcode/
+.zcode/

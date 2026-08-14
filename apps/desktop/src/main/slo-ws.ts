@@ -1,6 +1,8 @@
 // 单点登出推送：主进程常驻 WebSocket 连接 BR-Agent server 的 /api/ws/client，
 // 收到 logout 消息 → 回调登出（清本地 token + 通知渲染层）。断线自动重连。
+// 注意：Electron 33 内置 Node 20 无全局 WebSocket，必须用 ws 库。
 import { app } from "electron";
+import WebSocket from "ws";
 import { apiClient } from "./api.js";
 import { tokenStore } from "./token-store.js";
 

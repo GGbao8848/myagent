@@ -9,7 +9,6 @@ import { loadConfig } from "./config.js";
 import { requireAuth, verifyToken } from "./auth/jwt.js";
 import { handleKeycloakLogout, registerSseLogoutClient } from "./auth/kc-logout.js";
 import { registerSessionRoutes } from "./modules/sessions/sessions.routes.js";
-import { registerChatRoutes } from "./modules/chat/chat.routes.js";
 import { registerSkillRoutes } from "./modules/skills/skills.routes.js";
 import { registerMcpRoutes } from "./modules/mcp/mcp.routes.js";
 import { registerLlmRoutes } from "./modules/llm/llm.routes.js";
@@ -99,7 +98,6 @@ app.addHook("onRequest", async (request, reply) => {
   await requireAuth(request, reply);
 });
 registerSessionRoutes(app);
-registerChatRoutes(app);
 registerSkillRoutes(app);
 registerMcpRoutes(app);
 registerLlmRoutes(app);

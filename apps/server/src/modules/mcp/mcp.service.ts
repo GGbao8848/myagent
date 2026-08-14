@@ -346,17 +346,7 @@ export async function deleteMcpServer(id: string, owner: string): Promise<void> 
   invalidateMcpClient(owner);
 }
 
-// ── 供对话注入：返回当前用户启用的 MCP 工具 ──
-// 容错：某服务器连接失败时降级返回 []（不阻断对话），错误写入日志
-export async function getEnabledMcpTools(owner: string): Promise<StructuredToolInterface[]> {
-  try {
-    const r = await getMcpClient(owner);
-    return r?.tools ?? [];
-  } catch (e) {
-    console.error(`[mcp] ${owner} 加载 MCP 工具失败:`, (e as Error).message);
-    return [];
-  }
-}
+// ── 供桌面客户端本地 agent 注册工具与执行 ──
 
 /** 当前用户可用的 MCP 工具列表（供客户端本地 agent 注册工具） */
 export async function listMcpTools(owner: string): Promise<Array<{ name: string; description: string; schema?: unknown }>> {

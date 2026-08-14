@@ -1,5 +1,5 @@
-// API 层：fetch 封装（自动带 token、401 刷新重试）+ SSE 消费
-import type { ChatRequestDto, LlmProviderDto, LlmProviderInput, LlmProviderListDto, McpServerDto, McpTestResultDto, MessageDto, SessionDetailDto, SessionDto, SkillDto, SSEChatEvent } from "@br-agent/shared";
+// API 层：fetch 封装（自动带 token、401 刷新重试）
+import type { LlmProviderDto, LlmProviderInput, LlmProviderListDto, McpServerDto, McpTestResultDto, SessionDetailDto, SessionDto, SkillDto } from "@br-agent/shared";
 import { getTokens, refreshAccessToken, handleSessionExpired } from "./auth";
 
 async function request(path: string, options: RequestInit = {}, retry = true): Promise<Response> {
@@ -40,7 +40,6 @@ export const api = {
   renameSession: (id: string, title: string) =>
     json(`/api/sessions/${id}`, { method: "PATCH", body: JSON.stringify({ title }) }),
   deleteSession: (id: string) => json(`/api/sessions/${id}`, { method: "DELETE" }),
-  stop: (id: string) => json(`/api/sessions/${id}/stop`, { method: "POST" }),
 
   // 会话回收站
   listTrashSessions: () => json<SessionDto[]>("/api/sessions/trash"),
@@ -91,70 +90,3 @@ export const api = {
   testLlmProvider: (id: string) =>
     json<{ ok: boolean; error?: string }>(`/api/llm/providers/${id}/test`, { method: "POST", body: JSON.stringify({}) }),
 };
-
-/** 发送消息并消费 SSE 事件流（401 时刷新 token 重试一次，与普通 API 请求一致） */
-export async function chatStream(
-  sessionId: string,
-  content: string,
-  onEvent: (evt: SSEChatEvent) => void,
-  signal?: AbortSignal
-): Promise<void> {
-  const doStream = async (): Promise<void> => {
-    const { access } = getTokens();
-    const resp = await fetch(`/api/sessions/${sessionId}/chat`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        ...(access ? { Authorization: `Bearer ${access}` } : {}),
-      },
-      body: JSON.stringify({ content } satisfies ChatRequestDto),
-      signal,
-    });
-    if (!resp.ok || !resp.body) {
-      const text = await resp.text();
-      throw new Error(text || `HTTP ${resp.status}`);
-    }
-
-    const reader = resp.body.getReader();
-    const decoder = new TextDecoder();
-    let buffer = "";
-    try {
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        buffer += decoder.decode(value, { stream: true });
-        // 按 \n\n 切分 SSE 帧
-        const frames = buffer.split("\n\n");
-        buffer = frames.pop() ?? "";
-        for (const frame of frames) {
-          const line = frame.trim().split("\n").find((l) => l.startsWith("data:"));
-          if (!line) continue;
-          try {
-            const data = JSON.parse(line.slice(5).trim()) as SSEChatEvent;
-            onEvent(data);
-          } catch {
-            /* 忽略解析失败的帧 */
-          }
-        }
-      }
-    } finally {
-      reader.releaseLock();
-    }
-  };
-
-  try {
-    await doStream();
-  } catch (e) {
-    // 401：token 过期，刷新后重试一次
-    if ((e as Error).message.includes("401") || String((e as Error).message).includes("未授权")) {
-      const ok = await refreshAccessToken();
-      if (ok) {
-        await doStream();
-        return;
-      }
-      // 刷新失败：会话已过期，清 token 并切回登录页
-      handleSessionExpired();
-    }
-    throw e;
-  }
-}

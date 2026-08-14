@@ -54,15 +54,6 @@ export function unregisterClient(username: string, clientId: string): void {
   if (byUser.size === 0) sessions.delete(username);
 }
 
-/** 该用户所有已连接客户端注册的工具（供 createAgentTools 注入 agent） */
-export function getClientToolsForUser(username: string): ClientToolSchema[] {
-  const byUser = sessions.get(username);
-  if (!byUser) return [];
-  const tools: ClientToolSchema[] = [];
-  for (const session of byUser.values()) tools.push(...session.tools);
-  return tools;
-}
-
 /** 客户端断线时，reject 该客户端未完成的调用，避免 agent 挂起到超时 */
 export function rejectUserClientPending(username: string, clientId: string): void {
   for (const [callId, p] of pending) {

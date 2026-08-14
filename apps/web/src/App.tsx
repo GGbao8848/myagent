@@ -1,8 +1,7 @@
-// 根组件：登录态判断 + 视图切换
+// 根组件：登录态判断 + 视图切换（管理页：技能/连接管理/模型配置；对话已移至桌面客户端本地 agent）
 import { useEffect, useState } from "react";
-import { MessagesSquare, FolderKanban, Plug, Cpu, LogOut, Bot, Settings, type LucideIcon } from "lucide-react";
+import { FolderKanban, Plug, Cpu, LogOut, Bot, Settings, type LucideIcon } from "lucide-react";
 import { isAuthenticated, handleCallback, login, logout, getUserName, SESSION_EXPIRED_EVENT, TOKEN_KEY, getTokens, clearTokens } from "./auth";
-import DialogueView from "./views/DialogueView";
 import SkillsView from "./views/SkillsView";
 import McpView from "./views/McpView";
 import LlmView from "./views/LlmView";
@@ -11,12 +10,10 @@ import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
-import type { MessageDto } from "@br-agent/shared";
 
-type View = "dialogue" | "skills" | "mcp" | "llm";
+type View = "skills" | "mcp" | "llm";
 
 const navItems: Array<{ key: View; label: string; icon: LucideIcon }> = [
-  { key: "dialogue", label: "对话", icon: MessagesSquare },
   { key: "skills", label: "技能", icon: FolderKanban },
   { key: "mcp", label: "连接管理", icon: Plug },
   { key: "llm", label: "模型配置", icon: Cpu },
@@ -28,8 +25,7 @@ const AUTO_LOGIN_KEY = "kc_auto_login_attempted";
 
 export default function App() {
   const [authed, setAuthed] = useState<boolean | null>(null);
-  const [view, setView] = useState<View>("dialogue");
-  const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
+  const [view, setView] = useState<View>("skills");
   const [showSettings, setShowSettings] = useState(false);
 
   useEffect(() => {
@@ -201,11 +197,8 @@ export default function App() {
         </div>
       </aside>
 
-      {/* 主内容：所有视图保持挂载（切换仅隐藏），避免对话流式状态/SSE 连接随卸载丢失 */}
+      {/* 主内容：管理页（技能/连接管理/模型配置） */}
       <main className="flex-1 flex flex-col min-w-0">
-        <div className={view === "dialogue" ? "flex-1 flex flex-col min-w-0 min-h-0" : "hidden"}>
-          <DialogueView activeSessionId={activeSessionId} onSelectSession={setActiveSessionId} />
-        </div>
         <div className={view === "skills" ? "flex-1 flex flex-col min-w-0 min-h-0" : "hidden"}>
           <SkillsView />
         </div>
@@ -277,5 +270,3 @@ function SettingsDialog({ onClose }: { onClose: () => void }) {
     </Dialog>
   );
 }
-
-export type { MessageDto };

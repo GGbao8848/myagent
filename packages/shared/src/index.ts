@@ -57,16 +57,6 @@ export interface FormColumn {
   optionsBy?: Record<string, FormFieldOption[]>; // 拼接 key → 本列选项
 }
 
-// ── SSE 事件（POST /api/sessions/:id/chat 响应流）──
-export type SSEChatEvent =
-  | { event: "thinking"; content: string }
-  | { event: "content"; content: string }
-  | { event: "tool_call"; tool_name: string; args: Record<string, unknown>; id: string }
-  | { event: "tool_result"; tool_name: string; content: string; is_error?: boolean }
-  | { event: "form"; form: FormDto }
-  | { event: "done"; message_id: number; created_at: string }
-  | { event: "error"; content: string };
-
 // ── API DTO ──
 export interface SessionDto {
   id: string;
@@ -154,16 +144,6 @@ export interface LlmProviderInput {
   apiKey?: string;
   public?: boolean;
   maxTokens?: number;
-}
-
-// ── 记忆画像 ──
-
-export interface ChatRequestDto {
-  content: string;
-}
-
-export interface ChatResponse {
-  messageId: number;
 }
 
 // ── 桌面客户端（C/S）本机能力网关 ──

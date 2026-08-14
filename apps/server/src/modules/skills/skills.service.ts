@@ -1,10 +1,9 @@
-// 技能服务：列表/加载/上传/启停，SKILL.md 注入 systemPrompt
+// 技能服务：列表/加载/上传/启停（数据服务；技能执行在桌面客户端本地，服务端不再跑脚本）
 import { resolve, join, relative, basename } from "node:path";
 import { existsSync, mkdirSync, readFileSync, writeFileSync, readdirSync, statSync, rmSync, renameSync } from "node:fs";
 import AdmZip from "adm-zip";
 import { prisma } from "../../db/index.js";
 import { loadConfig } from "../../config.js";
-import { runPython, safeResolve } from "../../agent/tools.js";
 import type { SkillDto } from "@br-agent/shared";
 
 const config = loadConfig();
@@ -74,29 +73,6 @@ export async function downloadSkillZip(owner: string, id: string): Promise<{ nam
   const zip = new AdmZip();
   zip.addLocalFolder(dir);
   return { name: skill.name, zip: zip.toBuffer().toString("base64") };
-}
-
-/** 服务器执行技能脚本（web 端备用；客户端已改为本地执行） */
-export async function executeSkill(
-  owner: string,
-  id: string,
-  script: string,
-  args: string[] = [],
-  input = ""
-): Promise<{ exitCode?: unknown; stdout?: string; stderr?: string; error?: string }> {
-  const skill = await prisma.skill.findFirst({ where: { id, OR: [{ owner: "" }, { owner }] } });
-  if (!skill) throw new Error("技能不存在或无权限");
-  const dir = skillDir(skill.owner, id);
-  const relDir = relative(config.dataDir, dir).replace(/\\/g, "/");
-  // 脚本在 scripts/ 子目录下（listSkillScripts 返回的就是其中的文件名）
-  const scriptPath = safeResolve(join(relDir, "scripts"), script);
-  if (!existsSync(scriptPath)) return { error: `脚本不存在：${script}` };
-  const raw = await runPython([scriptPath, ...args], dir, { timeout: 60, maxMemoryMb: 256 });
-  try {
-    return JSON.parse(raw) as { exitCode?: unknown; stdout?: string; stderr?: string };
-  } catch {
-    return { stdout: raw };
-  }
 }
 
 export async function installSkill(owner: string, zipBuffer: Buffer, isPublic = false): Promise<SkillDto> {
@@ -194,23 +170,4 @@ export async function deleteSkill(id: string, owner: string): Promise<void> {
   if (!skill) throw new Error("技能不存在或无权限");
   await prisma.skill.delete({ where: { id } });
   rmSync(skillDir(owner, id), { recursive: true, force: true });
-}
-
-/** 异步版本：读取启用技能并拼接 systemPrompt */
-export async function buildSkillPromptAsync(owner: string): Promise<{ prompt: string; skillDirs: string[] }> {
-  const skills = await prisma.skill.findMany({
-    where: { enabled: true, OR: [{ owner: "" }, { owner }] },
-  });
-  let prompt = "";
-  const skillDirs: string[] = [];
-  for (const s of skills) {
-    const dir = skillDir(s.owner, s.id);
-    const mdPath = join(dir, "SKILL.md");
-    if (!existsSync(mdPath)) continue;
-    const content = readFileSync(mdPath, "utf8");
-    const relDir = relative(config.dataDir, dir).replace(/\\/g, "/");
-    prompt += `\n\n## 技能：${s.name}\n${content}\n\n（技能路径：使用 run_script 工具时 cwd 填 ${relDir}，脚本路径相对 cwd。）`;
-    skillDirs.push(relDir);
-  }
-  return { prompt, skillDirs };
 }
